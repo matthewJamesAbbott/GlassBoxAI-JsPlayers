@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>GNN Inference Only</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 2rem; background: #f8fafc; color: #1e293b;}
+        .section { margin-bottom: 2rem;}
+        label, input, textarea, button { margin: 0.5rem 0;}
+        textarea { width: 100%; height: 6rem; font-family: monospace; resize: vertical; }
+        .results { background: #f5f5f5; padding: 1rem; border-radius: 5px; }
+        button { 
+            padding: 0.5rem 1rem; 
+            background: #3b82f6;
+            color: white; 
+            border-radius: 6px; border: none; cursor: pointer; font-size: 0.95rem;
+        }
+        button:disabled { background: #94a3b8; cursor: not-allowed;}
+    </style>
+</head>
+<body>
+    <h1>GNN Inference</h1>
+
+    <div class="section">
+        <h2>Load Trained Model</h2>
+        <input type="file" id="modelFile" accept=".json">
+        <button onclick="loadModel()">Load Model</button>
+        <span id="modelStatus"></span>
+    </div>
+
+    <div class="section">
+        <h2>Node Features</h2>
+        <label>Paste CSV features (each row is node, values comma separated):</label>
+        <textarea id="nodeFeatures"></textarea>
+    </div>
+
+    <div class="section">
+        <h2>Edges</h2>
+        <label>Paste Edge List (source,target per line):</label>
+        <textarea id="edgeList"></textarea>
+    </div>
+    
+    <div class="section">
+        <button onclick="runInference()">Run Inference</button>
+    </div>
+
+    <div class="section">
+        <h2>Output</h2>
+        <div id="output" class="results"></div>
+    </div>
+
+<script>
+class Edge {
+    constructor(source, target) { this.source = source; this.target = target; }
+    equals(other) { return this.source === other.source && this.target === other.target; }
+    toKey() { return `${this.source}-${this.target}`; }
+}
+
+class Graph {
+    constructor(numNodes) {
+        this.numNodes = numNodes;
+        this.nodeFeatures = Array(numNodes).fill(null).map(() => []);
+        this.edges = [];
+        this.adjacencyList = Array(numNodes).fill(null).map(() => []);
+    }
+    buildAdjacencyList(undirected = false, selfLoops = false) {
+        this.adjacencyList = Array(this.numNodes).fill(null).map(() => []);
+        for (const edge of this.edges) {
+            this.adjacencyList[edge.source].push(edge.target);
+            if (undirected && edge.source !== edge.target) {
+                this.adjacencyList[edge.target].push(edge.source);
+            }
+        }
+        if (selfLoops) {
+            for (let i = 0; i < this.numNodes; i++) {
+                if (!this.adjacencyList[i].includes(i)) {
+                    this.adjacencyList[i].push(i);
+                }
+            }
+        }
+    }
+}
+
+const activations = {
+    relu: { fn: x => Math.max(0, x) },
+    leaky_relu: { fn: x => x > 0 ? x : 0.01 * x },
+    tanh: { fn: x => Math.tanh(x) },
+    sigmoid: { fn: x => 1 / (1 + Math.exp(-Math.max(-500, Math.min(500, x)))) }
+};
+
+class DenseLayer {
+    constructor(numOutputs, numInputs) {
+        this.numOutputs = numOutputs;
+        this.numInputs = numInputs;
+        this.weights = Array(numOutputs).fill(null).map(() =>
+            Array(numInputs).fill(0)
+        );
+        this.biases = Array(numOutputs).fill(0);
+    }
+    forward(input, activation) {
+        let out = [];
+        for (let i = 0; i < this.numOutputs; i++) {
+            let sum = this.biases[i];
+            for (let j = 0; j < this.numInputs; j++) {
+                sum += this.weights[i][j] * input[j];
+            }
+            out[i] = activation.fn(sum);
+        }
+        return out;
+    }
+    setWeights(data) {
+        this.weights = data.weights.map(w => w.slice());
+        this.biases = data.biases.slice();
+    }
+}
+
+class GraphNeuralNetwork {
+    constructor(featureSize, hiddenSize, outputSize, numMPLayers) {
+        this.featureSize = featureSize;
+        this.hiddenSize = hiddenSize;
+        this.outputSize = outputSize;
+        this.numMPLayers = numMPLayers;
+        this.activationType = 'relu';
+        this.messageLayers = [];
+        this.updateLayers = [];
+        for (let i = 0; i < numMPLayers; i++) {
+            const inputSize = i === 0 ? featureSize * 2 : hiddenSize * 2;
+            this.messageLayers.push(new DenseLayer(hiddenSize, inputSize));
+            this.updateLayers.push(new DenseLayer(hiddenSize, hiddenSize * 2));
+        }
+        this.readoutLayer = new DenseLayer(hiddenSize, hiddenSize);
+        this.outputLayer = new DenseLayer(outputSize, hiddenSize);
+    }
+    get activation() { return activations[this.activationType]; }
+    forward(graph) {
+        const N = graph.numNodes, activation = this.activation;
+        let currentEmbeddings = graph.nodeFeatures.map(f => f.slice());
+        for (let layer = 0; layer < this.numMPLayers; layer++) {
+            let newEmbeddings = [];
+            for (let node = 0; node < N; node++) {
+                const neighbors = graph.adjacencyList[node];
+                let aggregatedMessage = Array(this.hiddenSize).fill(0);
+                if (neighbors.length > 0) {
+                    for (const neighbor of neighbors) {
+                        const concat = currentEmbeddings[node].concat(currentEmbeddings[neighbor]);
+                        const message = this.messageLayers[layer].forward(concat, activation);
+                        for (let i = 0; i < this.hiddenSize; i++)
+                            aggregatedMessage[i] += message[i];
+                    }
+                    for (let i = 0; i < this.hiddenSize; i++)
+                        aggregatedMessage[i] /= neighbors.length;
+                }
+                let updateInput;
+                if (layer === 0) {
+                    const paddedFeatures = Array(this.hiddenSize).fill(0);
+                    for (let i = 0; i < Math.min(currentEmbeddings[node].length, this.hiddenSize); i++) {
+                        paddedFeatures[i] = currentEmbeddings[node][i];
+                    }
+                    updateInput = paddedFeatures.concat(aggregatedMessage);
+                } else {
+                    updateInput = currentEmbeddings[node].concat(aggregatedMessage);
+                }
+                const newEmb = this.updateLayers[layer].forward(updateInput, activation);
+                newEmbeddings.push(newEmb);
+            }
+            currentEmbeddings = newEmbeddings;
+        }
+        this.nodeEmbeddings = currentEmbeddings;
+        this.graphEmbedding = Array(this.hiddenSize).fill(0);
+        for (let i = 0; i < N; i++)
+            for (let j = 0; j < this.hiddenSize; j++)
+                this.graphEmbedding[j] += this.nodeEmbeddings[i][j];
+        for (let j = 0; j < this.hiddenSize; j++)
+            this.graphEmbedding[j] /= N;
+        this.readoutOutput = this.readoutLayer.forward(this.graphEmbedding, activation);
+        const output = this.outputLayer.forward(this.readoutOutput, activations.sigmoid);
+        return output;
+    }
+    predict(graph) { return this.forward(graph);}
+    setWeights(data) {
+        data.messageLayers.forEach((w, i) => this.messageLayers[i].setWeights(w));
+        data.updateLayers.forEach((w, i) => this.updateLayers[i].setWeights(w));
+        this.readoutLayer.setWeights(data.readoutLayer);
+        this.outputLayer.setWeights(data.outputLayer);
+    }
+    static fromJSON(json) {
+        let obj = typeof json === "string" ? JSON.parse(json) : json;
+        const cfg = obj.config;
+        const gnn = new GraphNeuralNetwork(cfg.featureSize, cfg.hiddenSize, cfg.outputSize, cfg.numMPLayers);
+        gnn.setWeights(obj);
+        return gnn;
+    }
+}
+
+let loadedGNN = null, modelConfig = null;
+
+function loadModel() {
+    let fileInput = document.getElementById('modelFile');
+    let status = document.getElementById('modelStatus');
+    if (!fileInput.files.length) { status.textContent = 'No file selected.'; return;}
+    const reader = new FileReader();
+    reader.onload = function(e){
+        try {
+            loadedGNN = GraphNeuralNetwork.fromJSON(e.target.result);
+            modelConfig = JSON.parse(e.target.result).config;
+            status.textContent = "Model loaded: "
+                +"features/node:"+modelConfig.featureSize
+                +" hidden:"+modelConfig.hiddenSize
+                +" output:"+modelConfig.outputSize
+                +" MP layers:"+modelConfig.numMPLayers;
+        } catch (err) {
+            status.textContent = "Error loading model: " + err;
+        }
+    };
+    reader.readAsText(fileInput.files[0]);
+}
+
+function runInference() {
+    let outputDiv = document.getElementById('output');
+    if (!loadedGNN || !modelConfig) {
+        outputDiv.textContent = "No model loaded.";
+        return;
+    }
+    // Features:
+    let featText = document.getElementById('nodeFeatures').value.trim();
+    let featRows = featText.split(/\n/).map(row => row.trim()).filter(Boolean);
+    let nodeFeatures = featRows.map(row => row.split(',').map(Number));
+    if (nodeFeatures.length !== nodeFeatures.filter(f => f.length === modelConfig.featureSize).length) {
+        outputDiv.textContent = `Features: every node must have ${modelConfig.featureSize} values.`;
+        return;
+    }
+    if (nodeFeatures.some(arr => arr.some(isNaN))) {
+        outputDiv.textContent = "Features must all be numeric.";
+        return;
+    }
+    // Edges:
+    let edgeText = document.getElementById('edgeList').value.trim();
+    let edgeRows = edgeText.split(/\n/).filter(Boolean);
+    let edges = [];
+    for (let i = 0; i < edgeRows.length; i++) {
+        const parts = edgeRows[i].split(',').map(s=>parseInt(s.trim()));
+        if (parts.length !== 2 || parts.some(isNaN)
+            || parts[0] < 0 || parts[1] < 0
+            || parts[0] >= nodeFeatures.length || parts[1] >= nodeFeatures.length) {
+            outputDiv.textContent = `Edge ${i+1} invalid: expected "source,target" in [0,${nodeFeatures.length-1}]`;
+            return;
+        }
+        edges.push(new Edge(parts[0], parts[1]));
+    }
+    let g = new Graph(nodeFeatures.length);
+    g.nodeFeatures = nodeFeatures;
+    g.edges = edges;
+    g.buildAdjacencyList();
+    try {
+        const output = loadedGNN.predict(g);
+        outputDiv.textContent = "Output: " + JSON.stringify(output, null, 2);
+    } catch (err) {
+        outputDiv.textContent = "Inference error: " + err;
+    }
+}
+</script>
+</body>
+</html>
