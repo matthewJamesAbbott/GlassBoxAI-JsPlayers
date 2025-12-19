@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>MLP Inference</title>
+    <style>
+        body { font-family: Arial,sans-serif; margin:2rem;}
+        .section { margin-bottom:2rem;}
+        label, input, textarea, button { margin:0.5rem 0;}
+        .results { background:#f5f5f5; padding:1rem; border-radius:5px;}
+    </style>
+</head>
+<body>
+    <h1>MLP Inference (Loader Only)</h1>
+
+    <div class="section">
+        <h2>Load Trained Model</h2>
+        <input type="file" id="modelFile" accept=".json">
+        <button onclick="loadModel()">Load Model</button>
+        <span id="modelStatus"></span>
+    </div>
+
+    <div class="section">
+        <h2>Run Prediction</h2>
+        <label>Input (comma separated): <input type="text" id="predictInput" value="" autocomplete="off"></label>
+        <button onclick="predictInput()">Predict</button>
+        <div id="predictOutput" class="results"></div>
+    </div>
+
+    <script>
+        const EPSILON = 1e-15;
+
+        class ActivationFunctions {
+            static softmax(x) {
+                if (!Array.isArray(x)) return null;
+                const maxVal = Math.max(...x);
+                let sum = 0, expValues = [];
+                for (let i = 0; i < x.length; i++) {
+                    const expVal = Math.exp(x[i] - maxVal);
+                    expValues.push(expVal); sum += expVal;
+                }
+                return expValues.map(val => Math.max(EPSILON, Math.min(1-EPSILON, val/sum)));
+            }
+            static sigmoid(x) { return Array.isArray(x) ? x.map(val => 1/(1+Math.exp(-Math.max(-500, Math.min(500,val))))) : 1/(1+Math.exp(-Math.max(-500,Math.min(500,x)))); }
+            static tanh(x) { return Array.isArray(x) ? x.map(val=>Math.tanh(val)) : Math.tanh(x);}
+            static relu(x) { return Array.isArray(x) ? x.map(val=>Math.max(0,val)) : Math.max(0,x);}
+            static apply(type, x) {
+                switch(type) {
+                    case 'sigmoid': return this.sigmoid(x);
+                    case 'tanh': return this.tanh(x);
+                    case 'relu': return this.relu(x);
+                    case 'softmax': return this.softmax(x);
+                    default: return this.sigmoid(x);
+                }
+            }
+        }
+        class TNeuron {
+            constructor() {
+                this.weights = [];
+                this.bias = 0;
+                this.output = 0;
+            }
+        }
+        class TLayer {
+            constructor() {
+                this.neurons = [];
+                this.activationType = 'sigmoid';
+            }
+        }
+        class TMultiLayerPerceptron {
+            constructor() {
+                this.inputLayer = new TLayer();
+                this.hiddenLayers = [];
+                this.outputLayer = new TLayer();
+                this.hiddenActivation = 'sigmoid';
+                this.outputActivation = 'softmax';
+            }
+            feedForward(input) {
+                for (let i = 0; i < this.inputLayer.neurons.length; i++)
+                    this.inputLayer.neurons[i].output = input[i];
+
+                let prevOutputs = input;
+                for (let k = 0; k < this.hiddenLayers.length; k++) {
+                    let curOutputs = [];
+                    for (let i = 0; i < this.hiddenLayers[k].neurons.length; i++) {
+                        let sum = this.hiddenLayers[k].neurons[i].bias;
+                        for (let j = 0; j < prevOutputs.length; j++)
+                            sum += prevOutputs[j] * this.hiddenLayers[k].neurons[i].weights[j];
+                        this.hiddenLayers[k].neurons[i].output = ActivationFunctions.apply(
+                            this.hiddenLayers[k].activationType, sum
+                        );
+                        curOutputs.push(this.hiddenLayers[k].neurons[i].output);
+                    }
+                    prevOutputs = curOutputs;
+                }
+
+                let outputSums = [];
+                for (let i = 0; i < this.outputLayer.neurons.length; i++) {
+                    let sum = this.outputLayer.neurons[i].bias;
+                    for (let j = 0; j < prevOutputs.length; j++)
+                        sum += prevOutputs[j] * this.outputLayer.neurons[i].weights[j];
+                    outputSums.push(sum);
+                }
+
+                let output;
+                if (this.outputActivation === 'softmax') {
+                    output = ActivationFunctions.softmax(outputSums);
+                    for (let i = 0; i < this.outputLayer.neurons.length; i++)
+                        this.outputLayer.neurons[i].output = output[i];
+                } else {
+                    output = [];
+                    for (let i = 0; i < this.outputLayer.neurons.length; i++) {
+                        this.outputLayer.neurons[i].output = ActivationFunctions.apply(
+                            this.outputActivation, outputSums[i]
+                        );
+                        output.push(this.outputLayer.neurons[i].output);
+                    }
+                }
+                return output;
+            }
+            predict(input) {
+                // All other state (training/dropout/etc) is ignored for inference
+                return this.feedForward(input);
+            }
+            static fromJSON(json) {
+                let obj = typeof json === "string" ? JSON.parse(json) : json;
+                const mlp = new TMultiLayerPerceptron();
+                mlp.inputLayer = new TLayer();
+                for (let i = 0; i < obj.inputSize; i++) mlp.inputLayer.neurons.push(new TNeuron());
+                mlp.hiddenLayers = [];
+                mlp.hiddenActivation = obj.hiddenActivation;
+                mlp.outputActivation = obj.outputActivation;
+                for (let l = 0; l < obj.hiddenLayers.length; l++) {
+                    let layer = new TLayer();
+                    layer.activationType = obj.hiddenLayers[l].activationType;
+                    for (let n = 0; n < obj.hiddenLayers[l].neurons.length; n++) {
+                        let neuron = new TNeuron();
+                        neuron.weights = obj.hiddenLayers[l].neurons[n].weights;
+                        neuron.bias = obj.hiddenLayers[l].neurons[n].bias;
+                        layer.neurons.push(neuron);
+                    }
+                    mlp.hiddenLayers.push(layer);
+                }
+                mlp.outputLayer = new TLayer();
+                mlp.outputLayer.activationType = obj.outputLayer.activationType;
+                for (let n = 0; n < obj.outputLayer.neurons.length; n++) {
+                    let neuron = new TNeuron();
+                    neuron.weights = obj.outputLayer.neurons[n].weights;
+                    neuron.bias = obj.outputLayer.neurons[n].bias;
+                    mlp.outputLayer.neurons.push(neuron);
+                }
+                return mlp;
+            }
+        }
+
+        // UI logic
+        let mlpModel = null;
+
+        function loadModel() {
+            let fileInput = document.getElementById('modelFile');
+            let status = document.getElementById('modelStatus');
+            if (!fileInput.files.length) { status.textContent = 'No file selected.'; return;}
+
+            const reader = new FileReader();
+            reader.onload = function(e){
+                try {
+                    mlpModel = TMultiLayerPerceptron.fromJSON(e.target.result);
+                    status.textContent = "Model loaded OK.";
+                } catch (err) {
+                    status.textContent = "Error loading model: " + err;
+                }
+            };
+            reader.readAsText(fileInput.files[0]);
+        }
+
+        function predictInput() {
+            if (!mlpModel) {
+                document.getElementById('predictOutput').textContent = "No model loaded.";
+                return;
+            }
+            let input = document.getElementById('predictInput').value.trim().split(',').map(Number);
+            if (!input || input.length !== mlpModel.inputLayer.neurons.length)
+            {
+                document.getElementById('predictOutput').textContent =
+                    "Input size (" + input.length + ") doesn't match model (" + mlpModel.inputLayer.neurons.length + ")";
+                return;
+            }
+            const output = mlpModel.predict(input);
+            document.getElementById('predictOutput').textContent = "Predicted: " + JSON.stringify(output, null, 2);
+        }
+    </script>
+</body>
+</html>
