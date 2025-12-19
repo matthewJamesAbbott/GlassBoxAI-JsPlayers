@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RNN Inference Only</title>
+    <style>
+        body { font-family: Arial,sans-serif; margin:2rem; }
+        .section { margin-bottom:2rem; }
+        label, input, textarea, button { margin:0.5rem 0; }
+        textarea { width: 100%; height: 5rem; font-family: monospace; resize: vertical; }
+        .results { background: #f5f5f5; padding: 1rem; border-radius: 5px; }
+        button { 
+            padding: 0.5rem 1rem; background: #3b82f6; color: white; border-radius: 6px;
+            border: none; cursor: pointer; font-size: 0.95rem;
+        }
+        button:disabled { background: #94a3b8; cursor: not-allowed;}
+    </style>
+</head>
+<body>
+    <h1>RNN Inference</h1>
+
+    <div class="section">
+        <h2>Load Trained Model</h2>
+        <input type="file" id="modelFile" accept=".json">
+        <button onclick="loadModel()">Load Model</button>
+        <span id="modelStatus"></span>
+    </div>
+
+    <div class="section">
+        <h2>Input Sequence</h2>
+        <label>Each row: comma separated values (e.g. sequence of timesteps):</label>
+        <textarea id="predictSeq" rows="3"></textarea>
+    </div>
+
+    <div class="section">
+        <button onclick="predictSequence()">Predict Sequence</button>
+    </div>
+
+    <div class="section">
+        <h2>Output</h2>
+        <div id="predictOutput" class="results"></div>
+    </div>
+
+<script>
+const Activations = {
+    sigmoid: { fn: x=>1/(1+Math.exp(-Math.max(-500,Math.min(500,x)))) },
+    tanh: { fn: x=>Math.tanh(x) },
+    relu: { fn: x=>Math.max(0,x) },
+    linear: { fn: x=>x },
+    softmax: { 
+        fn: (x, arr) => {
+            const maxVal = Math.max(...arr);
+            const exps = arr.map(v => Math.exp(v - maxVal));
+            const sum = exps.reduce((a,b)=>a+b,0);
+            return exps[arr.indexOf(x)] / sum;
+        }
+    }
+};
+
+function applySoftmax(arr) {
+    const maxVal = Math.max(...arr);
+    const exps = arr.map(v => Math.exp(v - maxVal));
+    const sum = exps.reduce((a,b)=>a+b,0);
+    return exps.map(e=>e/sum);
+}
+
+// ----- Minimal cell classes needed for inference -----
+class SimpleRNNCell {
+    constructor(inputSize, hiddenSize, activation) {
+        this.inputSize = inputSize;
+        this.hiddenSize = hiddenSize;
+        this.activation = activation;
+        this.Wih = []; this.Whh = []; this.bh = [];
+    }
+    forward(input, prevH) {
+        const act = Activations[this.activation];
+        const h = new Array(this.hiddenSize);
+        for (let i=0;i<this.hiddenSize;i++){
+            let sum = this.bh[i];
+            for (let j=0;j<this.inputSize;j++) sum += this.Wih[i][j] * input[j];
+            for (let j=0;j<this.hiddenSize;j++) sum += this.Whh[i][j] * prevH[j];
+            h[i] = act.fn(sum);
+        }
+        return { h };
+    }
+    static fromJSON(json){
+        const cell = new SimpleRNNCell(json.inputSize, json.hiddenSize, json.activation);
+        cell.Wih = json.Wih; cell.Whh = json.Whh; cell.bh = json.bh;
+        return cell;
+    }
+}
+
+class LSTMCell {
+    constructor(inputSize, hiddenSize, activation) {
+        this.inputSize = inputSize;
+        this.hiddenSize = hiddenSize;
+        this.activation = activation;
+        this.Wf=[];this.Wi=[];this.Wc=[];this.Wo=[];
+        this.bf=[];this.bi=[];this.bc=[];this.bo=[];
+    }
+    forward(input, prevH, prevC) {
+        prevC = prevC || new Array(this.hiddenSize).fill(0);
+        const concat = [...input, ...prevH];
+        const sigmoid = Activations.sigmoid.fn;
+        const tanhFn = Activations.tanh.fn;
+        const f=[],i=[],cTilde=[],o=[],c=[],h=[];
+        for (let k=0; k<this.hiddenSize;k++){
+            let sumF=this.bf[k], sumI=this.bi[k], sumC=this.bc[k], sumO=this.bo[k];
+            for (let j=0;j<concat.length;j++){
+                sumF+=this.Wf[k][j]*concat[j];
+                sumI+=this.Wi[k][j]*concat[j];
+                sumC+=this.Wc[k][j]*concat[j];
+                sumO+=this.Wo[k][j]*concat[j];
+            }
+            f[k]=sigmoid(sumF); i[k]=sigmoid(sumI); cTilde[k]=tanhFn(sumC); o[k]=sigmoid(sumO);
+            c[k]=f[k]*prevC[k]+i[k]*cTilde[k]; h[k]=o[k]*tanhFn(c[k]);
+        }
+        return { h, c };
+    }
+    static fromJSON(json){
+        const cell = new LSTMCell(json.inputSize, json.hiddenSize, json.activation);
+        cell.Wf=json.Wf;cell.Wi=json.Wi;cell.Wc=json.Wc;cell.Wo=json.Wo;
+        cell.bf=json.bf;cell.bi=json.bi;cell.bc=json.bc;cell.bo=json.bo;
+        return cell;
+    }
+}
+
+class GRUCell {
+    constructor(inputSize, hiddenSize, activation){
+        this.inputSize=inputSize;this.hiddenSize=hiddenSize;this.activation=activation;
+        this.Wz=[];this.Wr=[];this.Wh=[];this.bz=[];this.br=[];this.bh=[];
+    }
+    forward(input, prevH) {
+        const concat = [...input, ...prevH];
+        const sigmoid = Activations.sigmoid.fn, tanhFn = Activations.tanh.fn;
+        const z = [], r = [];
+        for (let k=0; k<this.hiddenSize; k++){
+            let sumZ = this.bz[k], sumR = this.br[k];
+            for (let j=0;j<concat.length;j++){
+                sumZ+=this.Wz[k][j]*concat[j]; sumR+=this.Wr[k][j]*concat[j];
+            }
+            z[k]=sigmoid(sumZ); r[k]=sigmoid(sumR);
+        }
+        const rh=prevH.map((h,i)=>r[i]*h), concatR=[...input,...rh], hTilde=[];
+        for (let k=0;k<this.hiddenSize;k++){
+            let sumH=this.bh[k];
+            for (let j=0;j<concatR.length;j++) sumH+=this.Wh[k][j]*concatR[j];
+            hTilde[k]=tanhFn(sumH);
+        }
+        const h = [];
+        for(let k=0;k<this.hiddenSize;k++)
+            h[k] = (1-z[k])*prevH[k] + z[k]*hTilde[k];
+        return { h };
+    }
+    static fromJSON(json){
+        const cell = new GRUCell(json.inputSize, json.hiddenSize, json.activation);
+        cell.Wz=json.Wz;cell.Wr=json.Wr;cell.Wh=json.Wh;
+        cell.bz=json.bz;cell.br=json.br;cell.bh=json.bh;
+        return cell;
+    }
+}
+
+class OutputLayer {
+    constructor(inputSize, outputSize, activation){
+        this.inputSize=inputSize;this.outputSize=outputSize;this.activation=activation;
+        this.W=[];this.b=[];
+    }
+    forward(input){
+        const pre=new Array(this.outputSize);
+        for(let i=0;i<this.outputSize;i++){
+            let sum=this.b[i];
+            for(let j=0;j<this.inputSize;j++) sum+=this.W[i][j]*input[j];
+            pre[i]=sum;
+        }
+        let out;
+        if(this.activation==="softmax") out = applySoftmax(pre);
+        else {
+            const act = Activations[this.activation] || Activations.linear;
+            out = pre.map(v=>act.fn(v));
+        }
+        return out;
+    }
+    static fromJSON(json){
+        const layer = new OutputLayer(json.inputSize, json.outputSize, json.activation);
+        layer.W = json.W; layer.b = json.b;
+        return layer;
+    }
+}
+
+class AdvancedRNN {
+    constructor(config){
+        this.inputSize = config.inputSize;
+        this.outputSize = config.outputSize;
+        this.hiddenSizes = config.hiddenSizes;
+        this.cellType = config.cellType || 'lstm';
+        this.activation = config.activation || 'tanh';
+        this.outputActivation = config.outputActivation || 'linear';
+        this.cells = [];
+        let prevSize = this.inputSize;
+        for (const hs of this.hiddenSizes){
+            let cell;
+            if(this.cellType==='lstm') cell = new LSTMCell(prevSize, hs, this.activation);
+            else if(this.cellType==='gru') cell = new GRUCell(prevSize, hs, this.activation);
+            else cell = new SimpleRNNCell(prevSize, hs, this.activation);
+            this.cells.push(cell);
+            prevSize = hs;
+        }
+        this.outputLayer = new OutputLayer(prevSize, this.outputSize, this.outputActivation);
+    }
+    initHiddenState(){
+        return this.cells.map(cell=>({
+            h: new Array(cell.hiddenSize).fill(0),
+            c: new Array(cell.hiddenSize).fill(0)
+        }));
+    }
+    forwardStep(input, states){
+        let x = input, newStates=[];
+        for(let i=0;i<this.cells.length;i++){
+            const cell = this.cells[i];
+            if(cell instanceof LSTMCell){
+                const vals = cell.forward(x, states[i].h, states[i].c);
+                newStates.push({ h: vals.h, c: vals.c }); x = vals.h;
+            }else if(cell instanceof GRUCell){
+                const vals = cell.forward(x, states[i].h); 
+                newStates.push({ h: vals.h, c: states[i].c }); x = vals.h;
+            }else{
+                const vals = cell.forward(x, states[i].h); 
+                newStates.push({ h: vals.h, c: states[i].c }); x = vals.h;
+            }
+        }
+        const out = this.outputLayer.forward(x);
+        return { output: out, states: newStates };
+    }
+    predict(inputs){
+        let states = this.initHiddenState(), outputs=[];
+        for(const input of inputs){
+            const result = this.forwardStep(input, states);
+            outputs.push(result.output);
+            states=result.states;
+        }
+        return outputs;
+    }
+    static fromJSON(jsonStr){
+        const obj = typeof jsonStr === "string" ? JSON.parse(jsonStr):jsonStr;
+        const rnn = new AdvancedRNN(obj);
+        for (let i=0;i<obj.cells.length;i++){
+            const cellData = obj.cells[i];
+            if(cellData.type==='lstm') rnn.cells[i]=LSTMCell.fromJSON(cellData);
+            else if(cellData.type==='gru') rnn.cells[i]=GRUCell.fromJSON(cellData);
+            else rnn.cells[i]=SimpleRNNCell.fromJSON(cellData);
+        }
+        rnn.outputLayer=OutputLayer.fromJSON(obj.outputLayer);
+        return rnn;
+    }
+}
+
+let rnnModel = null, modelConfig = null;
+
+function loadModel(){
+    let fileInput = document.getElementById('modelFile');
+    let status = document.getElementById('modelStatus');
+    if(!fileInput.files.length){status.textContent="No file selected.";return;}
+    const reader = new FileReader();
+    reader.onload = function(e){
+        try{
+            rnnModel = AdvancedRNN.fromJSON(e.target.result);
+            modelConfig = JSON.parse(e.target.result);
+            status.textContent =
+                "Model loaded: Input "+modelConfig.inputSize+" Hidden ["+modelConfig.hiddenSizes+"] Out "+modelConfig.outputSize
+                +" Cell "+modelConfig.cellType.toUpperCase()+" OutputActivation "+modelConfig.outputActivation;
+        }catch(err){
+            status.textContent = "Error loading model: "+err;
+        }
+    };
+    reader.readAsText(fileInput.files[0]);
+}
+
+function predictSequence(){
+    let outDiv = document.getElementById('predictOutput');
+    if(!rnnModel||!modelConfig){
+        outDiv.textContent="No model loaded.";return;
+    }
+    const txt = document.getElementById("predictSeq").value.trim();
+    if(!txt){outDiv.textContent="Enter an input sequence.";return;}
+    let rows = txt.split(/[\n;]/).map(row=>row.trim()).filter(Boolean);
+    let seq = rows.map(row=>row.split(",").map(Number));
+    if(seq.length === 0 || seq.some(s => s.length !== modelConfig.inputSize)){
+        outDiv.textContent = "Input should have "+modelConfig.inputSize+" values per row.";
+        return;
+    }
+    if(seq.some(arr=> arr.some(isNaN))){
+        outDiv.textContent="Input must be all valid numeric values.";return;
+    }
+    try{
+        const output = rnnModel.predict(seq);
+        outDiv.textContent = "Output sequence:\n" + JSON.stringify(output, null, 2);
+    }catch(err){
+        outDiv.textContent = "Inference error: "+err;
+    }
+}
+</script>
+</body>
+</html>
