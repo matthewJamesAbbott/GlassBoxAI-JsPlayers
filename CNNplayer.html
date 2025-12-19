@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CNN Inference Only</title>
+    <style>
+        body { font-family: Arial,sans-serif; margin:2rem; background:#fafafa; }
+        .section { margin-bottom:2rem; }
+        label, input, textarea, button { margin:0.5rem 0; }
+        textarea { width: 100%; height: 7rem; font-family: monospace; resize: vertical; }
+        .results { background: #f5f5f5; padding: 1rem; border-radius: 5px; }
+        button { 
+            padding: 0.5rem 1rem; background: #4285f4; color: white; border-radius: 6px;
+            border: none; cursor: pointer; font-size: 0.95rem;
+        }
+        button:disabled { background: #94a3b8; cursor: not-allowed;}
+        canvas { border: 1px solid #ccc; background: #fff; margin-bottom:1rem;}
+    </style>
+</head>
+<body>
+    <h1>CNN Inference</h1>
+
+    <div class="section">
+        <h2>Load Trained Model</h2>
+        <input type="file" id="modelFile" accept=".json">
+        <button onclick="loadModel()">Load Model</button>
+        <span id="modelStatus"></span>
+    </div>
+
+    <div class="section">
+        <h2>Input Image</h2>
+        <div>
+            <label>Upload Image:
+                <input type="file" id="imageUpload" accept="image/*" onchange="handleImageUpload(event)">
+            </label>
+        </div>
+        <div>
+            <label>Or Paste CSV (channels,height,width, comma separated):</label>
+            <textarea id="imageCSV" placeholder="Ex: 0.0,0.1,..."></textarea>
+            <button onclick="loadImageCSV()">Load CSV as Image</button>
+        </div>
+        <div>
+            <canvas id="inputCanvas" width="140" height="140"></canvas>
+        </div>
+        <div id="imageStatus"></div>
+    </div>
+
+    <div class="section">
+        <button onclick="predictSingleImage()">Predict Image</button>
+    </div>
+
+    <div class="section">
+        <h2>Output</h2>
+        <div id="predictionResult" class="results"></div>
+    </div>
+
+<script>
+// *** Minimal CNN class for inference ***
+class CNN {
+    constructor(inputWidth, inputHeight, channels, convFilters, kernelSizes, poolSizes, fcSizes, outputSize) {
+        this.inputWidth = inputWidth;
+        this.inputHeight = inputHeight;
+        this.channels = channels;
+        this.convFilters = convFilters;
+        this.kernelSizes = kernelSizes;
+        this.poolSizes = poolSizes;
+        this.fcSizes = fcSizes;
+        this.outputSize = outputSize;
+        this.initLayers();
+    }
+    initLayers() {
+        this.convLayers = [];
+        this.poolLayers = [];
+        let currWidth = this.inputWidth, currHeight = this.inputHeight, currChannels = this.channels;
+        for (let i = 0; i < this.convFilters.length; i++) {
+            let kernel = this.kernelSizes[i];
+            let filters = this.convFilters[i];
+            let padding = Math.floor(kernel / 2);
+            this.convLayers.push(this.initConvLayer(filters, currChannels, kernel, padding));
+            currWidth = Math.floor((currWidth - kernel + 2 * padding) / 1 + 1);
+            currHeight = Math.floor((currHeight - kernel + 2 * padding) / 1 + 1);
+            currChannels = filters;
+            if (i < this.poolSizes.length) {
+                let pool = this.poolSizes[i];
+                this.poolLayers.push(this.initPoolLayer(pool));
+                currWidth = Math.floor(currWidth / pool); currHeight = Math.floor(currHeight / pool);
+            }
+        }
+        this.flattenedSize = currWidth * currHeight * currChannels;
+        this.fcLayers = [];
+        let numInputs = this.flattenedSize;
+        for (let sz of this.fcSizes) {
+            this.fcLayers.push(this.initFCLayer(sz, numInputs)); numInputs = sz;
+        }
+        this.outputLayer = this.initFCLayer(this.outputSize, numInputs);
+    }
+    initConvLayer(numFilters, inChannels, kernel, padding) {
+        let filters = [];
+        for (let i = 0; i < numFilters; i++) {
+            let w = [];
+            for (let c = 0; c < inChannels; c++) {
+                let k = [];
+                for (let h = 0; h < kernel; h++) {
+                    let row = [];
+                    for (let wIdx = 0; wIdx < kernel; wIdx++) row.push(0);
+                    k.push(row);
+                }
+                w.push(k);
+            }
+            filters.push({ weights: w, bias: 0 });
+        }
+        return { filters, stride: 1, padding, kernel, inChannels };
+    }
+    initPoolLayer(poolSize) { return { poolSize }; }
+    initFCLayer(numNeurons, numInputs) {
+        let neurons = [];
+        for (let i = 0; i < numNeurons; i++) neurons.push({ weights: new Array(numInputs).fill(0), bias: 0, output: 0 });
+        return { neurons };
+    }
+    relu(x) { return Math.max(0, x); }
+    softmax(arr) {
+        let max = Math.max(...arr), exps = arr.map(a=>Math.exp(a-max)), sum = exps.reduce((a,b)=>a+b,0);
+        return exps.map(e=>e/sum);
+    }
+    pad3D(input, padding) {
+        if (padding === 0) return input;
+        let channels = input.length, h = input[0].length, w = input[0][0].length;
+        let padded = [];
+        for (let c = 0; c < channels; c++) {
+            let chan = [];
+            for (let i = 0; i < h + 2 * padding; i++) {
+                let row = [];
+                for (let j = 0; j < w + 2 * padding; j++) {
+                    let srcI = i - padding, srcJ = j - padding;
+                    row.push((srcI >= 0 && srcI < h && srcJ >= 0 && srcJ < w) ? input[c][srcI][srcJ] : 0);
+                }
+                chan.push(row);
+            }
+            padded.push(chan);
+        }
+        return padded;
+    }
+    convForward(layer, input, inWidth, inHeight) {
+        let paddedInput = this.pad3D(input, layer.padding);
+        let kernel = layer.kernel, outWidth = Math.floor((inWidth + 2 * layer.padding - kernel) / 1 + 1);
+        let outHeight = Math.floor((inHeight + 2 * layer.padding - kernel) / 1 + 1);
+        let inChannels = input.length;
+        let outputMaps = [];
+        for (let f = 0; f < layer.filters.length; f++) {
+            let map = [];
+            for (let h = 0; h < outHeight; h++) {
+                let row = [];
+                for (let w = 0; w < outWidth; w++) {
+                    let sum = layer.filters[f].bias;
+                    for (let c = 0; c < inChannels; c++)
+                        for (let kh = 0; kh < kernel; kh++)
+                            for (let kw = 0; kw < kernel; kw++)
+                                sum += paddedInput[c][h+kh][w+kw] * layer.filters[f].weights[c][kh][kw];
+                    row.push(this.relu(sum));
+                }
+                map.push(row);
+            }
+            outputMaps.push(map);
+        }
+        return outputMaps;
+    }
+    poolForward(layer, input, inWidth, inHeight) {
+        let outputMaps = [];
+        let outWidth = Math.floor(inWidth / layer.poolSize), outHeight = Math.floor(inHeight / layer.poolSize);
+        for (let c = 0; c < input.length; c++) {
+            let map = [];
+            for (let h = 0; h < outHeight; h++) {
+                let row = [];
+                for (let w = 0; w < outWidth; w++) {
+                    let maxVal = -Infinity;
+                    for (let ph = 0; ph < layer.poolSize; ph++)
+                        for (let pw = 0; pw < layer.poolSize; pw++)
+                            maxVal = Math.max(maxVal, input[c][h * layer.poolSize + ph][w * layer.poolSize + pw]);
+                    row.push(maxVal);
+                }
+                map.push(row);
+            }
+            outputMaps.push(map);
+        }
+        return outputMaps;
+    }
+    flattenFeatures(input) {
+        let arr = [];
+        for (let c = 0; c < input.length; c++)
+            for (let h = 0; h < input[c].length; h++)
+                for (let w = 0; w < input[c][h].length; w++)
+                    arr.push(input[c][h][w]);
+        this.lastConvShape = { channels: input.length, height: input[0].length, width: input[0][0].length };
+        return arr;
+    }
+    fcForward(layer, input) {
+        let outputs = [];
+        for (let n of layer.neurons) {
+            let sum = n.bias;
+            for (let j = 0; j < input.length; j++) sum += input[j] * n.weights[j];
+            n.output = this.relu(sum);
+            outputs.push(n.output);
+        }
+        return outputs;
+    }
+    forward(imageObj) {
+        let { data, width, height } = imageObj;
+        let currentOutput = data;
+        let currWidth = width, currHeight = height;
+        for (let i = 0; i < this.convLayers.length; i++) {
+            currentOutput = this.convForward(this.convLayers[i], currentOutput, currWidth, currHeight);
+            currWidth = currentOutput[0][0].length; currHeight = currentOutput[0].length;
+            if (i < this.poolLayers.length) {
+                currentOutput = this.poolForward(this.poolLayers[i], currentOutput, currWidth, currHeight);
+                currWidth = currentOutput[0][0].length; currHeight = currentOutput[0].length;
+            }
+        }
+        let flat = this.flattenFeatures(currentOutput);
+        let layerInput = flat;
+        for (let fcl of this.fcLayers)
+            layerInput = this.fcForward(fcl, layerInput);
+        let logits = [];
+        for (let n of this.outputLayer.neurons) {
+            let sum = n.bias;
+            for (let j = 0; j < layerInput.length; j++)
+                sum += layerInput[j] * n.weights[j];
+            logits.push(sum);
+        }
+        let probs = this.softmax(logits);
+        return probs;
+    }
+    predictImage(imageObj) { return this.forward(imageObj); }
+    static fromJSON(json) {
+        let c = json.config;
+        let net = new CNN(c.inputWidth, c.inputHeight, c.channels, c.convFilters, c.kernelSizes, c.poolSizes, c.fcSizes, c.outputSize);
+        for (let i = 0; i < json.convLayers.length; i++) {
+            let jl = json.convLayers[i];
+            for (let f = 0; f < jl.filters.length; f++) {
+                net.convLayers[i].filters[f].weights = jl.filters[f].weights; net.convLayers[i].filters[f].bias = jl.filters[f].bias;
+            }
+        }
+        for (let i = 0; i < json.fcLayers.length; i++) {
+            let jl = json.fcLayers[i];
+            for (let n = 0; n < jl.neurons.length; n++)
+                Object.assign(net.fcLayers[i].neurons[n], jl.neurons[n]);
+        }
+        for (let n = 0; n < json.outputLayer.neurons.length; n++)
+            Object.assign(net.outputLayer.neurons[n], json.outputLayer.neurons[n]);
+        return net;
+    }
+}
+
+// ====== Inference UI logic ======
+let cnnModel = null, modelConfig = null, lastImageObj = null;
+
+function loadModel() {
+    let fileInput = document.getElementById('modelFile');
+    let status = document.getElementById('modelStatus');
+    if (!fileInput.files.length) {
+        status.textContent = 'No file selected.'; return;
+    }
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const parsed = JSON.parse(e.target.result);
+            cnnModel = CNN.fromJSON(parsed);
+            modelConfig = parsed.config;
+            status.textContent = "Model loaded: "
+                + "WxH:" + modelConfig.inputWidth + "x" + modelConfig.inputHeight
+                + ", channels:" + modelConfig.channels
+                + ", classes:" + modelConfig.outputSize;
+        } catch (err) {
+            status.textContent = "Error loading model: " + err;
+        }
+    };
+    reader.readAsText(fileInput.files[0]);
+}
+
+function handleImageUpload(event) {
+    let files = event.target.files;
+    if (!files.length) return;
+    let file = files[0];
+    let reader = new FileReader();
+    reader.onload = function(e) {
+        let img = new window.Image();
+        img.onload = function() {
+            let w = modelConfig?.inputWidth || 28, h = modelConfig?.inputHeight || 28, ch = modelConfig?.channels || 1;
+            let canvas = document.getElementById("inputCanvas");
+            canvas.width = w; canvas.height = h;
+            let ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, w, h);
+            let imgData = ctx.getImageData(0, 0, w, h);
+            let data = [];
+            for (let c = 0; c < ch; c++) {
+                let chan = [];
+                for (let i = 0; i < h; i++) {
+                    let row = [];
+                    for (let j = 0; j < w; j++) {
+                        let idx = (i * w + j) * 4;
+                        if (ch === 1)
+                            row.push(imgData.data[idx] / 255);
+                        else
+                            row.push(imgData.data[idx + c] / 255);
+                    }
+                    chan.push(row);
+                }
+                data.push(chan);
+            }
+            lastImageObj = { data, width: w, height: h, channels: ch };
+            document.getElementById("imageStatus").textContent = "Image loaded (" + w + "x" + h + ", ch: " + ch + ")";
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+function loadImageCSV() {
+    let txt = document.getElementById("imageCSV").value.trim();
+    if (!txt) { document.getElementById("imageStatus").textContent = "Enter some CSV values."; return; }
+    if (!modelConfig) { document.getElementById("imageStatus").textContent = "Load model first."; return; }
+    let w = modelConfig.inputWidth, h = modelConfig.inputHeight, ch = modelConfig.channels;
+    let arr = txt.split(",").map(Number);
+    if (arr.length !== w * h * ch) {
+        document.getElementById("imageStatus").textContent = "CSV length (" + arr.length + ") doesn't match expected " + (w * h * ch);
+        return;
+    }
+    let data = [];
+    let idx = 0;
+    for (let c = 0; c < ch; c++) {
+        let chan = [];
+        for (let i = 0; i < h; i++) {
+            let row = [];
+            for (let j = 0; j < w; j++)
+                row.push(arr[idx++]);
+            chan.push(row);
+        }
+        data.push(chan);
+    }
+    lastImageObj = { data, width: w, height: h, channels: ch };
+    let canvas = document.getElementById("inputCanvas");
+    canvas.width = w; canvas.height = h;
+    let ctx = canvas.getContext("2d");
+    for (let i = 0; i < h; i++) {
+        for (let j = 0; j < w; j++) {
+            let v = ch === 1 ? data[0][i][j] : ((data[0][i][j] + data[1][i][j] + (data[2]?.[i][j]||0))/ch);
+            let col = Math.round(v*255);
+            ctx.fillStyle = "rgb("+col+","+col+","+col+")";
+            ctx.fillRect(j, i, 1, 1);
+        }
+    }
+    document.getElementById("imageStatus").textContent = "CSV image loaded (" + w + "x" + h + ", ch: " + ch + ")";
+}
+
+function predictSingleImage() {
+    let pDiv = document.getElementById('predictionResult');
+    if (!cnnModel || !modelConfig) { pDiv.textContent = "No model loaded."; return; }
+    if (!lastImageObj) { pDiv.textContent = "No image loaded."; return; }
+    try {
+        const out = cnnModel.predictImage(lastImageObj);
+        pDiv.textContent = "Predicted probabilities: " + JSON.stringify(out, null, 2);
+    } catch (err) {
+        pDiv.textContent = "Inference error: " + err;
+    }
+}
+</script>
+</body>
+</html>
