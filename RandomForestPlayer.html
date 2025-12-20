@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Random Forest Inference</title>
+    <style>
+        body { font-family: Arial,sans-serif; margin:2rem; }
+        .section { margin-bottom:2rem; }
+        label, input, textarea, button { margin:0.5rem 0; }
+        .results { background: #f5f5f5; padding: 1rem; border-radius: 5px; }
+        button { 
+            padding: 0.5rem 1rem; background: #4285f4; color: white; border-radius: 6px;
+            border: none; cursor: pointer; font-size: 0.95rem;
+        }
+        button:disabled { background: #94a3b8; cursor: not-allowed;}
+        textarea { width:100%; height:5rem; font-family:monospace; resize:vertical;}
+    </style>
+</head>
+<body>
+    <h1>Random Forest Inference</h1>
+    <div class="section">
+        <h2>Load Trained Model</h2>
+        <input type="file" id="modelFile" accept=".json">
+        <button onclick="loadModel()">Load Model</button>
+        <span id="modelStatus"></span>
+    </div>
+    <div class="section">
+        <h2>Input Vector</h2>
+        <label>Input (comma separated values): <input type="text" id="predictInput"></label>
+        <button onclick="predictInput()">Predict</button>
+    </div>
+    <div class="section">
+        <h2>Batch Prediction (CSV)</h2>
+        <label>Paste CSV (one vector per line):</label>
+        <textarea id="batchCSV"></textarea>
+        <button onclick="predictBatch()">Predict Batch</button>
+    </div>
+    <div class="section">
+        <h2>Output</h2>
+        <div id="predictOutput" class="results"></div>
+    </div>
+<script>
+// --- Minimal RandomForest for inference only ---
+class RandomForest {
+    constructor() {
+        this.numTrees = 0;
+        this.maxDepth = 0;
+        this.minSamplesLeaf = 1;
+        this.minSamplesSplit = 2;
+        this.maxFeatures = 0;
+        this.numFeatures = 0;
+        this.taskType = "classification";
+        this.criterion = "gini";
+        this.trees = [];
+    }
+    static fromJSON(json) {
+        const obj = typeof json === "string" ? JSON.parse(json) : json;
+        const rf = new RandomForest();
+        rf.numTrees = obj.numTrees;
+        rf.maxDepth = obj.maxDepth;
+        rf.minSamplesLeaf = obj.minSamplesLeaf;
+        rf.minSamplesSplit = obj.minSamplesSplit;
+        rf.maxFeatures = obj.maxFeatures;
+        rf.numFeatures = obj.numFeatures;
+        rf.taskType = obj.taskType;
+        rf.criterion = obj.criterion;
+        rf.trees = obj.trees;
+        return rf;
+    }
+    predict(sample) {
+        if (this.taskType==="regression") {
+            let preds = this.trees.map(tree=>this.predictTree(tree.root,sample));
+            return preds.reduce((a,b)=>a+b,0)/(preds.length||1);
+        } else {
+            let votes = {};
+            this.trees.forEach(tree=>{
+                let label = Math.round(this.predictTree(tree.root,sample));
+                votes[label] = (votes[label]||0)+1;
+            });
+            return Number(Object.keys(votes).reduce((a,b)=>votes[a]>votes[b]?a:b));
+        }
+    }
+    predictTree(node, sample) {
+        if (!node) return 0;
+        if (node.isLeaf) return node.prediction;
+        if (sample[node.featureIndex] <= node.threshold)
+            return this.predictTree(node.left,sample);
+        else
+            return this.predictTree(node.right,sample);
+    }
+    predictBatch(samples) {
+        return samples.map(sample=>this.predict(sample));
+    }
+    getNumFeatures() { return this.numFeatures || (this.trees?.[0]?.root?.featureIndex+1) || 0; }
+}
+
+// ====== UI logic for inference ======
+let rfModel = null, modelConfig = null;
+
+function loadModel() {
+    let fileInput = document.getElementById('modelFile');
+    let status = document.getElementById('modelStatus');
+    if (!fileInput.files.length) {
+        status.textContent = 'No file selected.'; return;
+    }
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            rfModel = RandomForest.fromJSON(e.target.result);
+            modelConfig = rfModel;
+            status.textContent = "Model loaded. Trees: " + rfModel.numTrees
+                + ", Features: " + rfModel.getNumFeatures()
+                + ", Type: " + rfModel.taskType;
+        } catch (err) {
+            status.textContent = "Error loading model: " + err;
+        }
+    };
+    reader.readAsText(fileInput.files[0]);
+}
+
+function predictInput() {
+    let outDiv = document.getElementById('predictOutput');
+    if (!rfModel) { outDiv.textContent = "Model not loaded."; return; }
+    let val = document.getElementById("predictInput").value.trim();
+    let arr = val.split(',').map(Number);
+    const nFeat = rfModel.getNumFeatures();
+    if (arr.length !== nFeat) {
+        outDiv.textContent = 'Error: Input vector size mismatch! Model expects '+nFeat;
+        return;
+    }
+    try {
+        let pred = rfModel.predict(arr);
+        outDiv.textContent = 'Prediction: '+pred;
+    } catch (err) {
+        outDiv.textContent = "Prediction error: "+err;
+    }
+}
+
+function predictBatch() {
+    let outDiv = document.getElementById('predictOutput');
+    if (!rfModel) { outDiv.textContent = "Model not loaded."; return; }
+    let txt = document.getElementById('batchCSV').value.trim();
+    if (!txt) { outDiv.textContent = "No CSV input."; return; }
+    let rows = txt.split('\n').map(r=>r.trim()).filter(Boolean);
+    let arrs = rows.map(row=>row.split(',').map(Number));
+    const nFeat = rfModel.getNumFeatures();
+    if (arrs.some(a => a.length !== nFeat || a.some(isNaN))) {
+        outDiv.textContent = 'Error: All input vectors must have '+nFeat+" numeric values.";
+        return;
+    }
+    try {
+        let preds = rfModel.predictBatch(arrs);
+        outDiv.textContent = "Predictions:\n" + JSON.stringify(preds, null, 2);
+    } catch (err) {
+        outDiv.textContent = "Prediction error: "+err;
+    }
+}
+</script>
+</body>
+</html>
