@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GlassBoxAI-JsPlayers | Client-Side ML Inference</title>
+    <meta name="description" content="Lightweight client-side inference players for GlassBoxAI machine learning models.  Run neural networks, decision forests, and graph neural networks directly in your browser.">
+    <style>
+        * {
+            margin: 0;
+            padding:  0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background:  linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding:  2rem;
+        }
+
+        header {
+            text-align: center;
+            color: white;
+            padding: 3rem 0;
+            margin-bottom: 3rem;
+        }
+
+        header h1 {
+            font-size: 3rem;
+            margin-bottom:  1rem;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        header p {
+            font-size: 1.25rem;
+            opacity: 0.95;
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        .tagline {
+            background: rgba(255,255,255,0.15);
+            padding: 1rem 2rem;
+            border-radius:  50px;
+            display: inline-block;
+            margin-top: 1rem;
+            backdrop-filter: blur(10px);
+        }
+
+        .main-content {
+            background: white;
+            border-radius: 12px;
+            padding: 3rem;
+            box-shadow:  0 20px 60px rgba(0,0,0,0.3);
+            margin-bottom: 2rem;
+        }
+
+        . section {
+            margin-bottom: 3rem;
+        }
+
+        .section h2 {
+            color: #667eea;
+            font-size: 2rem;
+            margin-bottom: 1.5rem;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 0.5rem;
+        }
+
+        .section h3 {
+            color: #764ba2;
+            font-size: 1.5rem;
+            margin:  1.5rem 0 1rem;
+        }
+
+        .player-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+
+        .player-card {
+            background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+            border:  2px solid #667eea;
+            border-radius: 12px;
+            padding: 2rem;
+            text-align:  center;
+            transition: transform 0.3s, box-shadow 0.3s;
+            cursor: pointer;
+        }
+
+        .player-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+        }
+
+        .player-card h3 {
+            color: #667eea;
+            margin:  0 0 1rem;
+            font-size: 1.5rem;
+        }
+
+        . player-card p {
+            color: #666;
+            margin-bottom: 1.5rem;
+        }
+
+        .player-card .btn {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 0.75rem 2rem;
+            border-radius: 50px;
+            text-decoration:  none;
+            font-weight:  600;
+            transition: transform 0.2s;
+        }
+
+        . player-card .btn:hover {
+            transform: scale(1.05);
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin: 2rem 0;
+        }
+
+        .feature {
+            padding: 1.5rem;
+            background: #f8f9fa;
+            border-radius:  8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .feature h4 {
+            color: #667eea;
+            margin-bottom: 0.5rem;
+            font-size: 1.2rem;
+        }
+
+        . ecosystem {
+            background: #f8f9fa;
+            padding:  2rem;
+            border-radius: 8px;
+            margin: 2rem 0;
+        }
+
+        .ecosystem-grid {
+            display: grid;
+            grid-template-columns:  repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .ecosystem-item {
+            background: white;
+            padding: 1rem;
+            border-radius: 6px;
+            border:  1px solid #ddd;
+        }
+
+        . ecosystem-item a {
+            color: #667eea;
+            text-decoration:  none;
+            font-weight:  600;
+        }
+
+        .ecosystem-item a:hover {
+            text-decoration: underline;
+        }
+
+        .ecosystem-label {
+            font-size: 0.85rem;
+            color: #999;
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        . code-block {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 1.5rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 1rem 0;
+            font-family: 'Courier New', monospace;
+        }
+
+        .code-block code {
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .use-cases {
+            background: linear-gradient(135deg, #667eea10 0%, #764ba210 100%);
+            padding:  2rem;
+            border-radius: 8px;
+            margin: 2rem 0;
+        }
+
+        .use-case {
+            margin: 1.5rem 0;
+            padding-left: 1.5rem;
+            border-left: 3px solid #667eea;
+        }
+
+        .use-case h4 {
+            color:  #667eea;
+            margin-bottom: 0.5rem;
+        }
+
+        .cta-section {
+            text-align: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 3rem;
+            border-radius:  12px;
+            margin:  3rem 0;
+        }
+
+        .cta-section h2 {
+            color: white;
+            border:  none;
+            margin-bottom: 1rem;
+        }
+
+        .cta-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 2rem;
+        }
+
+        . cta-btn {
+            display: inline-block;
+            background: white;
+            color: #667eea;
+            padding: 1rem 2.5rem;
+            border-radius: 50px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 1.1rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .cta-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+        }
+
+        .cta-btn. secondary {
+            background: transparent;
+            color: white;
+            border: 2px solid white;
+        }
+
+        footer {
+            text-align: center;
+            color: white;
+            padding: 2rem;
+            opacity: 0.9;
+        }
+
+        footer a {
+            color: white;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        . badge {
+            display: inline-block;
+            background: #28a745;
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size:  0.75rem;
+            font-weight:  600;
+            margin-left: 0.5rem;
+        }
+
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 2rem;
+            }
+
+            header p {
+                font-size: 1rem;
+            }
+
+            .main-content {
+                padding: 1. 5rem;
+            }
+
+            .section h2 {
+                font-size: 1.5rem;
+            }
+
+            .cta-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎮 GlassBoxAI-JsPlayers</h1>
+            <p>Lightweight client-side inference players for machine learning models</p>
+            <div class="tagline">
+                Train Anywhere.  Deploy Everywhere. Run Client-Side. 
+            </div>
+        </header>
+
+        <div class="main-content">
+            <section class="section">
+                <h2>🚀 What is GlassBoxAI-JsPlayers?</h2>
+                <p>
+                    GlassBoxAI-JsPlayers enables running inference for neural network models, decision forests, and graph neural networks 
+                    <strong>directly in the browser or any JavaScript runtime</strong>, with no need for server compute. 
+                </p>
+                <p style="margin-top: 1rem;">
+                    This project is a critical part of the <strong>GlassBoxAI ecosystem</strong>, providing simple JavaScript "players" 
+                    that can load and run models exported from other GlassBoxAI libraries—including CUDA (GPU), OpenCL, Pascal, Rust, 
+                    C++, and pure JavaScript implementations.
+                </p>
+            </section>
+
+            <section class="section">
+                <h2>🎯 Available Players</h2>
+                <div class="player-grid">
+                    <div class="player-card">
+                        <h3>🧠 MLP Player</h3>
+                        <p>Multi-Layer Perceptron inference for fully-connected neural networks</p>
+                        <a href="MLPplayer.html" class="btn">Launch MLP Player</a>
+                    </div>
+
+                    <div class="player-card">
+                        <h3>🖼️ CNN Player</h3>
+                        <p>Convolutional Neural Network inference for image processing tasks</p>
+                        <a href="CNNplayer.html" class="btn">Launch CNN Player</a>
+                    </div>
+
+                    <div class="player-card">
+                        <h3>🔄 RNN Player</h3>
+                        <p>Recurrent Neural Network inference for sequential data</p>
+                        <a href="RNNplayer.html" class="btn">Launch RNN Player</a>
+                    </div>
+
+                    <div class="player-card">
+                        <h3>🕸️ GNN Player</h3>
+                        <p>Graph Neural Network inference for graph-structured data</p>
+                        <a href="GNNplayer. html" class="btn">Launch GNN Player</a>
+                    </div>
+
+                    <div class="player-card">
+                        <h3>🌲 Random Forest Player</h3>
+                        <p>Decision tree ensemble inference for classification and regression</p>
+                        <a href="RandomForestPlayer. html" class="btn">Launch RF Player</a>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>✨ Key Features</h2>
+                <div class="features">
+                    <div class="feature">
+                        <h4>🔒 Privacy-First</h4>
+                        <p>All inference runs client-side.  Your data never leaves the device.</p>
+                    </div>
+                    <div class="feature">
+                        <h4>⚡ Zero Dependencies</h4>
+                        <p>Pure HTML/JavaScript. No npm, no build tools, no external libraries.</p>
+                    </div>
+                    <div class="feature">
+                        <h4>🌐 Universal Compatibility</h4>
+                        <p>Works in any modern browser, Node.js, or JavaScript runtime.</p>
+                    </div>
+                    <div class="feature">
+                        <h4>🔧 Standardized Format</h4>
+                        <p>Load models trained with CUDA, OpenCL, Pascal, Rust, C++, or JavaScript.</p>
+                    </div>
+                    <div class="feature">
+                        <h4>🎓 Educational</h4>
+                        <p>Perfect for students, educators, and ML enthusiasts to learn and experiment.</p>
+                    </div>
+                    <div class="feature">
+                        <h4>🚀 Production Ready</h4>
+                        <p>Deploy trained models directly to web apps with no backend compute. </p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>💡 Use Cases</h2>
+                <div class="use-cases">
+                    <div class="use-case">
+                        <h4>1. Train on CUDA/OpenCL, Deploy in Browser</h4>
+                        <p>
+                            Train complex models using high-performance GlassBoxAI CUDA or OpenCL libraries. 
+                            Export to JSON.  Deploy with GlassBoxAI-JsPlayers for instant client-side inference.
+                        </p>
+                    </div>
+                    <div class="use-case">
+                        <h4>2. Educational Workshops & Classrooms</h4>
+                        <p>
+                            Use Facade versions or pure JavaScript libraries to teach neural network concepts. 
+                            Students can train, export, and run models entirely in-browser.
+                        </p>
+                    </div>
+                    <div class="use-case">
+                        <h4>3. Rapid Prototyping & Experimentation</h4>
+                        <p>
+                            Quickly test model architectures using Pascal, Rust, or C++ trainers. 
+                            Validate inference behavior with interactive web interfaces.
+                        </p>
+                    </div>
+                    <div class="use-case">
+                        <h4>4. Privacy-Critical Applications</h4>
+                        <p>
+                            Build applications where data privacy is paramount. Medical diagnostics, 
+                            financial predictions, or personal data analysis—all running locally.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>🔌 Quick Start</h2>
+                <h3>1. Clone the Repository</h3>
+                <div class="code-block">
+                    <code>git clone https://github.com/matthewJamesAbbott/GlassBoxAI-JsPlayers.git<br>
+cd GlassBoxAI-JsPlayers</code>
+                </div>
+
+                <h3>2. Use in Your HTML</h3>
+                <div class="code-block">
+                    <code>&lt;! -- Example: Load and run an MLP model --&gt;<br>
+&lt;script src="MLPplayer.html"&gt;&lt;/script&gt;<br>
+&lt;script&gt;<br>
+&nbsp;&nbsp;// Load your trained model JSON<br>
+&nbsp;&nbsp;const modelJson = /* your exported JSON model */;<br>
+&nbsp;&nbsp;<br>
+&nbsp;&nbsp;// Run inference<br>
+&nbsp;&nbsp;const result = MLPPlayer.infer(modelJson, [/* input data */]);<br>
+&nbsp;&nbsp;console.log('Prediction:', result);<br>
+&lt;/script&gt;</code>
+                </div>
+
+                <h3>3. Load Your Model</h3>
+                <p>Export your trained model from any GlassBoxAI trainer (CUDA, OpenCL, Pascal, Rust, C++, or JavaScript) in the standard JSON format.</p>
+            </section>
+
+            <section class="section">
+                <h2>🌍 GlassBoxAI Ecosystem</h2>
+                <div class="ecosystem">
+                    <h3>High-Performance Trainers (CUDA, OpenCL, Native)</h3>
+                    <div class="ecosystem-grid">
+                        <div class="ecosystem-item">
+                            <div class="ecosystem-label">CUDA/OpenCL</div>
+                            <a href="https://github.com/matthewJamesAbbott/GlassBoxAI-MLP" target="_blank">GlassBoxAI-MLP</a>
+                        </div>
+                        <div class="ecosystem-item">
+                            <div class="ecosystem-label">CUDA/OpenCL</div>
+                            <a href="https://github.com/matthewJamesAbbott/GlassBoxAI-CNN" target="_blank">GlassBoxAI-CNN</a>
+                        </div>
+                        <div class="ecosystem-item">
+                            <div class="ecosystem-label">CUDA/OpenCL</div>
+                            <a href="https://github.com/matthewJamesAbbott/GlassBoxAI-RNN" target="_blank">GlassBoxAI-RNN</a>
+                        </div>
+                        <div class="ecosystem-item">
+                            <div class="ecosystem-label">CUDA/OpenCL</div>
+                            <a href="https://github.com/matthewJamesAbbott/GlassBoxAI-GNN" target="_blank">GlassBoxAI-GNN</a>
+                        </div>
+                        <div class="ecosystem-item">
+                            <div class="ecosystem-label">CUDA/OpenCL</div>
+                            <a href="https://github.com/matthewJamesAbbott/GlassBoxAI-RandomForest" target="_blank">GlassBoxAI-RandomForest</a>
+                        </div>
+                        <div class="ecosystem-item">
+                            <div class="ecosystem-label">Pascal</div>
+                            <a href="https://github.com/matthewJamesAbbott/Pascal-Datastructures" target="_blank">Pascal Facade Libraries</a>
+                        </div>
+                    </div>
+
+                    <h3 style="margin-top: 2rem;">JavaScript Trainers (Educational)</h3>
+                    <div class="ecosystem-grid">
+                        <div class="ecosystem-item">
+                            <div class="ecosystem-label">Pure JS</div>
+                            <a href="https://github.com/matthewJamesAbbott/Javascript-MLP" target="_blank">Javascript-MLP</a>
+                        </div>
+                        <div class="ecosystem-item">
+                            <div class="ecosystem-label">Pure JS</div>
+                            <a href="https://github.com/matthewJamesAbbott/Javascript-CNN" target="_blank">Javascript-CNN</a>
+                        </div>
+                        <div class="ecosystem-item">
+                            <div class="ecosystem-label">Pure JS</div>
+                            <a href="https://github.com/matthewJamesAbbott/Javascript-RNN" target="_blank">Javascript-RNN</a>
+                        </div>
+                        <div class="ecosystem-item">
+                            <div class="ecosystem-label">Pure JS</div>
+                            <a href="https://github.com/matthewJamesAbbott/Javascript-GNN" target="_blank">Javascript-GNN</a>
+                        </div>
+                        <div class="ecosystem-item">
+                            <div class="ecosystem-label">Pure JS</div>
+                            <a href="https://github.com/matthewJamesAbbott/Javascript-RandomForest" target="_blank">Javascript-RandomForest</a>
+                        </div>
+                        <div class="ecosystem-item">
+                            <div class="ecosystem-label">Facade JS</div>
+                            <a href="https://github.com/matthewJamesAbbott/Javascript-FacadeCNN" target="_blank">Javascript-FacadeCNN</a>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>📋 Model Format Compatibility</h2>
+                <p>
+                    All models must be exported in the <strong>shared JSON format</strong> used across the GlassBoxAI ecosystem.  
+                    This ensures seamless interoperability between: 
+                </p>
+                <ul style="margin:  1rem 0 1rem 2rem;">
+                    <li><strong>CUDA/OpenCL trainers</strong> – High-performance GPU-accelerated training</li>
+                    <li><strong>Pascal libraries</strong> – Facaded implementations with deep inspection capabilities</li>
+                    <li><strong>Rust/C++ implementations</strong> – Native performance training</li>
+                    <li><strong>JavaScript trainers</strong> – Browser-based educational tools</li>
+                    <li><strong>JavaScript players</strong> – This repository, for universal inference</li>
+                </ul>
+            </section>
+        </div>
+
+        <div class="cta-section">
+            <h2>Ready to Get Started?</h2>
+            <p style="font-size: 1.1rem; margin-bottom: 1rem;">
+                Choose a player, load your model, and start running client-side ML inference today!
+            </p>
+            <div class="cta-buttons">
+                <a href="https://github.com/matthewJamesAbbott/GlassBoxAI-JsPlayers" class="cta-btn" target="_blank">
+                    View on GitHub
+                </a>
+                <a href="CNNplayer.html" class="cta-btn secondary">
+                    Try CNN Player
+                </a>
+                <a href="MLPplayer.html" class="cta-btn secondary">
+                    Try MLP Player
+                </a>
+            </div>
+        </div>
+
+        <footer>
+            <p>
+                <strong>GlassBoxAI-JsPlayers</strong> | 
+                Created by <a href="https://github.com/matthewJamesAbbott" target="_blank">Matthew Abbott</a> | 
+                Australia 🇦🇺 | 
+                <a href="https://github.com/matthewJamesAbbott/GlassBoxAI-JsPlayers/blob/main/license.md" target="_blank">MIT License</a>
+            </p>
+            <p style="margin-top:  1rem; opacity: 0.8;">
+                Part of the <strong>GlassBoxAI Ecosystem</strong> – Transparent, Educational, Production-Ready Machine Learning
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
