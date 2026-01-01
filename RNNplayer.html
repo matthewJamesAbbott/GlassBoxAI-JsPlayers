@@ -1,29 +1,251 @@
+<!--
+MIT License
+
+Copyright (c) 2025 Matthew Abbott
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions: 
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>RNN Inference Only</title>
+    <title>RNN Player</title>
     <style>
-        body { font-family: Arial,sans-serif; margin:2rem; }
-        .section { margin-bottom:2rem; }
-        label, input, textarea, button { margin:0.5rem 0; }
+        body { font-family: Arial, sans-serif; margin: 2rem; background: #fafafa; }
+        .section { margin-bottom: 2rem; background: #fff; padding: 1rem; border-radius: 8px; border-bottom: 1px solid #ccc; }
+        label { display: block; margin-top: 0.5rem; }
+        input, select, textarea, button { margin: 0.5rem 0; }
         textarea { width: 100%; height: 5rem; font-family: monospace; resize: vertical; }
         .results { background: #f5f5f5; padding: 1rem; border-radius: 5px; }
-        button { 
-            padding: 0.5rem 1rem; background: #3b82f6; color: white; border-radius: 6px;
-            border: none; cursor: pointer; font-size: 0.95rem;
-        }
-        button:disabled { background: #94a3b8; cursor: not-allowed;}
+        button { padding: 8px 16px; cursor: pointer; background: #5a5a5a; color: white; border: none; border-radius: 0; }
+        button:hover { background: #4a4a4a; }
+        button:active { background: #3a3a3a; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
     </style>
 </head>
 <body>
-    <h1>RNN Inference</h1>
+<script>
+function visualizeRNNArchitecture(rnn, containerId) {
+    if (!rnn) return;
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    const spacing = 85;
+    const padding = 20;
+    const legendSpace = 80;
+    const numHiddenLayers = rnn.hiddenSizes?.length || rnn.cells?.length || 0;
+    const totalLayers = 2 + numHiddenLayers;
+    const totalWidth = totalLayers * spacing + padding * 2 + legendSpace;
+    const totalHeight = 200;
+
+    const svgContainer = document.createElement('div');
+    svgContainer.setAttribute('style', 'overflow-x: auto; overflow-y: hidden; border: 1px solid #ccc; background: #fafafa; border-radius: 4px; margin: 1rem 0; height: 220px;');
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', totalWidth);
+    svg.setAttribute('height', totalHeight);
+    svg.setAttribute('style', 'display: block;');
+
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    defs.innerHTML = `
+        <linearGradient id="inputGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#4caf50;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#2e7d32;stop-opacity:1" />
+        </linearGradient>
+        <linearGradient id="rnnGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#9c27b0;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#6a1b9a;stop-opacity:1" />
+        </linearGradient>
+        <linearGradient id="lstmGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#2196f3;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#1565c0;stop-opacity:1" />
+        </linearGradient>
+        <linearGradient id="gruGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#ff9800;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#ef6c00;stop-opacity:1" />
+        </linearGradient>
+        <linearGradient id="outGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#f44336;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#c62828;stop-opacity:1" />
+        </linearGradient>
+    `;
+    svg.appendChild(defs);
+
+    let xPos = padding + legendSpace;
+    const cy = totalHeight / 2;
+    const cellType = (rnn.cellType || 'lstm').toLowerCase();
+
+    drawRNNInputLayer(svg, xPos, cy, rnn.inputSize || 4);
+    xPos += spacing;
+
+    const hiddenSizes = rnn.hiddenSizes || [16];
+    for (let i = 0; i < hiddenSizes.length; i++) {
+        drawRNNCellLayer(svg, xPos, cy, cellType, hiddenSizes[i], i + 1);
+        xPos += spacing;
+    }
+
+    drawRNNOutputLayer(svg, xPos, cy, rnn.outputSize || 3, rnn.outputActivation || 'linear');
+    drawRNNLegend(svg, padding + 5, cy - 40, cellType);
+
+    svgContainer.innerHTML = '';
+    svgContainer.appendChild(svg);
+    container.innerHTML = '';
+    container.appendChild(svgContainer);
+}
+
+function drawRNNInputLayer(svg, x, cy, size) {
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    box.setAttribute('x', x - 25); box.setAttribute('y', cy - 35);
+    box.setAttribute('width', 50); box.setAttribute('height', 70);
+    box.setAttribute('fill', 'url(#inputGrad)'); box.setAttribute('stroke', '#1b5e20');
+    box.setAttribute('stroke-width', 1.5); box.setAttribute('rx', 3);
+    g.appendChild(box);
+
+    const text1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text1.setAttribute('x', x); text1.setAttribute('y', cy - 12);
+    text1.setAttribute('text-anchor', 'middle'); text1.setAttribute('font-size', '10');
+    text1.setAttribute('font-weight', 'bold'); text1.setAttribute('fill', 'white');
+    text1.textContent = 'Input';
+    g.appendChild(text1);
+
+    const text2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text2.setAttribute('x', x); text2.setAttribute('y', cy + 8);
+    text2.setAttribute('text-anchor', 'middle'); text2.setAttribute('font-size', '9');
+    text2.setAttribute('fill', 'white');
+    text2.textContent = `${size}`;
+    g.appendChild(text2);
+
+    svg.appendChild(g);
+}
+
+function drawRNNCellLayer(svg, x, cy, cellType, hiddenSize, layerNum) {
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    let gradId = 'lstmGrad', strokeColor = '#1565c0', label = 'LSTM';
+    if (cellType === 'gru') { gradId = 'gruGrad'; strokeColor = '#ef6c00'; label = 'GRU'; }
+    else if (cellType === 'rnn' || cellType === 'simplernn') { gradId = 'rnnGrad'; strokeColor = '#6a1b9a'; label = 'RNN'; }
+
+    const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    box.setAttribute('x', x - 28); box.setAttribute('y', cy - 35);
+    box.setAttribute('width', 56); box.setAttribute('height', 70);
+    box.setAttribute('fill', `url(#${gradId})`); box.setAttribute('stroke', strokeColor);
+    box.setAttribute('stroke-width', 1.5); box.setAttribute('rx', 3);
+    g.appendChild(box);
+
+    const recur = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    recur.setAttribute('d', `M${x-10},${cy-35} Q${x-10},${cy-50} ${x},${cy-50} Q${x+10},${cy-50} ${x+10},${cy-35}`);
+    recur.setAttribute('fill', 'none'); recur.setAttribute('stroke', 'white');
+    recur.setAttribute('stroke-width', 2);
+    g.appendChild(recur);
+
+    const text1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text1.setAttribute('x', x); text1.setAttribute('y', cy - 5);
+    text1.setAttribute('text-anchor', 'middle'); text1.setAttribute('font-size', '10');
+    text1.setAttribute('font-weight', 'bold'); text1.setAttribute('fill', 'white');
+    text1.textContent = `${label}${layerNum}`;
+    g.appendChild(text1);
+
+    const text2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text2.setAttribute('x', x); text2.setAttribute('y', cy + 12);
+    text2.setAttribute('text-anchor', 'middle'); text2.setAttribute('font-size', '9');
+    text2.setAttribute('fill', 'white');
+    text2.textContent = `h=${hiddenSize}`;
+    g.appendChild(text2);
+
+    svg.appendChild(g);
+}
+
+function drawRNNOutputLayer(svg, x, cy, size, activation) {
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    box.setAttribute('x', x - 28); box.setAttribute('y', cy - 35);
+    box.setAttribute('width', 56); box.setAttribute('height', 70);
+    box.setAttribute('fill', 'url(#outGrad)'); box.setAttribute('stroke', '#c62828');
+    box.setAttribute('stroke-width', 1.5); box.setAttribute('rx', 3);
+    g.appendChild(box);
+
+    const text1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text1.setAttribute('x', x); text1.setAttribute('y', cy - 12);
+    text1.setAttribute('text-anchor', 'middle'); text1.setAttribute('font-size', '10');
+    text1.setAttribute('font-weight', 'bold'); text1.setAttribute('fill', 'white');
+    text1.textContent = 'Output';
+    g.appendChild(text1);
+
+    const text2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text2.setAttribute('x', x); text2.setAttribute('y', cy + 5);
+    text2.setAttribute('text-anchor', 'middle'); text2.setAttribute('font-size', '9');
+    text2.setAttribute('fill', 'white');
+    text2.textContent = `${size}`;
+    g.appendChild(text2);
+
+    const text3 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text3.setAttribute('x', x); text3.setAttribute('y', cy + 18);
+    text3.setAttribute('text-anchor', 'middle'); text3.setAttribute('font-size', '8');
+    text3.setAttribute('fill', 'white');
+    text3.textContent = activation;
+    g.appendChild(text3);
+
+    svg.appendChild(g);
+}
+
+function drawRNNLegend(svg, x, y, cellType) {
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    let cellColor = 'url(#lstmGrad)', cellLabel = 'LSTM';
+    if (cellType === 'gru') { cellColor = 'url(#gruGrad)'; cellLabel = 'GRU'; }
+    else if (cellType === 'rnn' || cellType === 'simplernn') { cellColor = 'url(#rnnGrad)'; cellLabel = 'RNN'; }
+
+    const items = [
+        { label: 'Input', color: 'url(#inputGrad)' },
+        { label: cellLabel, color: cellColor },
+        { label: 'Output', color: 'url(#outGrad)' }
+    ];
+
+    let yOffset = y;
+    items.forEach(item => {
+        const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        box.setAttribute('x', x); box.setAttribute('y', yOffset);
+        box.setAttribute('width', 10); box.setAttribute('height', 10);
+        box.setAttribute('fill', item.color); box.setAttribute('stroke', '#666');
+        box.setAttribute('stroke-width', 0.5); box.setAttribute('rx', 2);
+        g.appendChild(box);
+
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', x + 14); text.setAttribute('y', yOffset + 8);
+        text.setAttribute('font-size', '9'); text.setAttribute('fill', '#333');
+        text.textContent = item.label;
+        g.appendChild(text);
+
+        yOffset += 18;
+    });
+
+    svg.appendChild(g);
+}
+</script>
+    <h1>RNN Player</h1>
 
     <div class="section">
         <h2>Load Trained Model</h2>
         <input type="file" id="modelFile" accept=".json">
         <button onclick="loadModel()">Load Model</button>
         <span id="modelStatus"></span>
+        <div id="networkViz"></div>
     </div>
 
     <div class="section">
@@ -242,14 +464,38 @@ class AdvancedRNN {
     }
     static fromJSON(jsonStr){
         const obj = typeof jsonStr === "string" ? JSON.parse(jsonStr):jsonStr;
-        const rnn = new AdvancedRNN(obj);
-        for (let i=0;i<obj.cells.length;i++){
-            const cellData = obj.cells[i];
-            if(cellData.type==='lstm') rnn.cells[i]=LSTMCell.fromJSON(cellData);
-            else if(cellData.type==='gru') rnn.cells[i]=GRUCell.fromJSON(cellData);
-            else rnn.cells[i]=SimpleRNNCell.fromJSON(cellData);
+        const config = {
+            inputSize: obj.input_size ?? obj.inputSize,
+            outputSize: obj.output_size ?? obj.outputSize,
+            hiddenSizes: obj.hidden_sizes ?? obj.hiddenSizes,
+            cellType: obj.cell_type ?? obj.cellType,
+            activation: obj.activation,
+            outputActivation: obj.output_activation ?? obj.outputActivation
+        };
+        if (config.cellType === 'simplernn') config.cellType = 'rnn';
+        const rnn = new AdvancedRNN(config);
+        
+        if (obj.cells && obj.cells.length > 0) {
+            for (let i = 0; i < obj.cells.length; i++) {
+                const cellData = obj.cells[i];
+                const cell = rnn.cells[i];
+                if (cell instanceof LSTMCell) {
+                    cell.Wf = cellData.Wf; cell.Wi = cellData.Wi; cell.Wc = cellData.Wc; cell.Wo = cellData.Wo;
+                    cell.bf = cellData.Bf ?? cellData.bf; cell.bi = cellData.Bi ?? cellData.bi;
+                    cell.bc = cellData.Bc ?? cellData.bc; cell.bo = cellData.Bo ?? cellData.bo;
+                } else if (cell instanceof GRUCell) {
+                    cell.Wz = cellData.Wz; cell.Wr = cellData.Wr; cell.Wh = cellData.Wh;
+                    cell.bz = cellData.Bz ?? cellData.bz; cell.br = cellData.Br ?? cellData.br; cell.bh = cellData.Bh ?? cellData.bh;
+                } else {
+                    cell.Wih = cellData.Wih; cell.Whh = cellData.Whh; cell.bh = cellData.bh;
+                }
+            }
         }
-        rnn.outputLayer=OutputLayer.fromJSON(obj.outputLayer);
+        const outLayer = obj.output_layer ?? obj.outputLayer;
+        if (outLayer) {
+            rnn.outputLayer.W = outLayer.W;
+            rnn.outputLayer.b = outLayer.B ?? outLayer.b;
+        }
         return rnn;
     }
 }
@@ -264,10 +510,19 @@ function loadModel(){
     reader.onload = function(e){
         try{
             rnnModel = AdvancedRNN.fromJSON(e.target.result);
-            modelConfig = JSON.parse(e.target.result);
+            const obj = JSON.parse(e.target.result);
+            modelConfig = {
+                inputSize: obj.input_size ?? obj.inputSize,
+                outputSize: obj.output_size ?? obj.outputSize,
+                hiddenSizes: obj.hidden_sizes ?? obj.hiddenSizes,
+                cellType: obj.cell_type ?? obj.cellType,
+                outputActivation: obj.output_activation ?? obj.outputActivation
+            };
+            if (modelConfig.cellType === 'simplernn') modelConfig.cellType = 'rnn';
             status.textContent =
                 "Model loaded: Input "+modelConfig.inputSize+" Hidden ["+modelConfig.hiddenSizes+"] Out "+modelConfig.outputSize
                 +" Cell "+modelConfig.cellType.toUpperCase()+" OutputActivation "+modelConfig.outputActivation;
+            visualizeRNNArchitecture(modelConfig, 'networkViz');
         }catch(err){
             status.textContent = "Error loading model: "+err;
         }
