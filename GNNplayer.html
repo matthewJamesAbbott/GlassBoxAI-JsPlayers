@@ -1,25 +1,56 @@
+<!--
+MIT License
+
+Copyright (c) 2025 Matthew Abbott
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions: 
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>GNN Inference Only</title>
     <style>
-        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 2rem; background: #f8fafc; color: #1e293b;}
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 2rem; background: #fafafa; color: #1e293b;}
         .section { margin-bottom: 2rem;}
         label, input, textarea, button { margin: 0.5rem 0;}
         textarea { width: 100%; height: 6rem; font-family: monospace; resize: vertical; }
         .results { background: #f5f5f5; padding: 1rem; border-radius: 5px; }
         button { 
-            padding: 0.5rem 1rem; 
-            background: #3b82f6;
+            padding: 8px 16px; 
+            background: #5a5a5a;
             color: white; 
-            border-radius: 6px; border: none; cursor: pointer; font-size: 0.95rem;
+            border-radius: 0; border: none; cursor: pointer; font-size: 0.95rem;
         }
-        button:disabled { background: #94a3b8; cursor: not-allowed;}
+        button:hover { background: #4a4a4a; }
+        button:active { background: #3a3a3a; }
+        button:disabled { background: #ccc; cursor: not-allowed;}
     </style>
 </head>
 <body>
     <h1>GNN Inference</h1>
+
+    <div class="section" id="networkVizSection" style="display:none;">
+        <h2>Network Architecture</h2>
+        <div id="networkVisualization"></div>
+    </div>
 
     <div class="section">
         <h2>Load Trained Model</h2>
@@ -177,19 +208,13 @@ class GraphNeuralNetwork {
         return output;
     }
     predict(graph) { return this.forward(graph);}
-    setWeights(data) {
-        data.messageLayers.forEach((w, i) => this.messageLayers[i].setWeights(w));
-        data.updateLayers.forEach((w, i) => this.updateLayers[i].setWeights(w));
-        this.readoutLayer.setWeights(data.readoutLayer);
-        this.outputLayer.setWeights(data.outputLayer);
-    }
-    static fromJSON(json) {
-        let obj = typeof json === "string" ? JSON.parse(json) : json;
-        const cfg = obj.config;
-        const gnn = new GraphNeuralNetwork(cfg.featureSize, cfg.hiddenSize, cfg.outputSize, cfg.numMPLayers);
-        gnn.setWeights(obj);
-        return gnn;
-    }
+}
+
+function convertNeuronsToDenseFormat(layerData) {
+    if (!layerData || !layerData.neurons) return null;
+    const weights = layerData.neurons.map(n => n.weights || []);
+    const biases = layerData.neurons.map(n => n.bias || 0);
+    return { weights, biases };
 }
 
 let loadedGNN = null, modelConfig = null;
@@ -201,13 +226,63 @@ function loadModel() {
     const reader = new FileReader();
     reader.onload = function(e){
         try {
-            loadedGNN = GraphNeuralNetwork.fromJSON(e.target.result);
-            modelConfig = JSON.parse(e.target.result).config;
+            const data = JSON.parse(e.target.result);
+            
+            // Extract config with fallback support for both snake_case and camelCase
+            const featureSize = data.feature_size || data.featureSize || (data.config?.featureSize);
+            const hiddenSize = data.hidden_size || data.hiddenSize || (data.config?.hiddenSize);
+            const outputSize = data.output_size || data.outputSize || (data.config?.outputSize);
+            const numMPLayers = data.num_message_passing_layers || data.numMPLayers || (data.config?.numMPLayers);
+            const activation = data.activation || data.activationType || 'relu';
+            
+            if (!featureSize || !hiddenSize || !outputSize || !numMPLayers) {
+                status.textContent = 'Invalid model data: missing configuration';
+                return;
+            }
+            
+            modelConfig = { featureSize, hiddenSize, outputSize, numMPLayers };
+            
+            loadedGNN = new GraphNeuralNetwork(featureSize, hiddenSize, outputSize, numMPLayers);
+            loadedGNN.activationType = activation;
+            
+            // Get layer data - handle both snake_case and camelCase
+            const messageLayers = data.message_layers || data.messageLayers || [];
+            const updateLayers = data.update_layers || data.updateLayers || [];
+            const readoutLayer = data.readout_layer || data.readoutLayer;
+            const outputLayer = data.output_layer || data.outputLayer;
+            
+            // Convert each layer from neuron format to DenseLayer format
+            messageLayers.forEach((layer, i) => {
+                const converted = convertNeuronsToDenseFormat(layer);
+                if (converted && i < loadedGNN.messageLayers.length) {
+                    loadedGNN.messageLayers[i].setWeights(converted);
+                }
+            });
+            
+            updateLayers.forEach((layer, i) => {
+                const converted = convertNeuronsToDenseFormat(layer);
+                if (converted && i < loadedGNN.updateLayers.length) {
+                    loadedGNN.updateLayers[i].setWeights(converted);
+                }
+            });
+            
+            if (readoutLayer) {
+                const converted = convertNeuronsToDenseFormat(readoutLayer);
+                if (converted) loadedGNN.readoutLayer.setWeights(converted);
+            }
+            
+            if (outputLayer) {
+                const converted = convertNeuronsToDenseFormat(outputLayer);
+                if (converted) loadedGNN.outputLayer.setWeights(converted);
+            }
+            
             status.textContent = "Model loaded: "
-                +"features/node:"+modelConfig.featureSize
-                +" hidden:"+modelConfig.hiddenSize
-                +" output:"+modelConfig.outputSize
-                +" MP layers:"+modelConfig.numMPLayers;
+                +"features/node:"+featureSize
+                +" hidden:"+hiddenSize
+                +" output:"+outputSize
+                +" MP layers:"+numMPLayers;
+            
+            visualizeGNNArchitecture(loadedGNN, 'networkVisualization');
         } catch (err) {
             status.textContent = "Error loading model: " + err;
         }
@@ -258,6 +333,160 @@ function runInference() {
         outputDiv.textContent = "Inference error: " + err;
     }
 }
+
+// ==================== GNN ARCHITECTURE VISUALIZATION ====================
+
+function visualizeGNNArchitecture(gnn, containerId) {
+    const container = document.getElementById(containerId);
+    const section = document.getElementById('networkVizSection');
+    if (!container || !section || !gnn) return;
+    
+    // Show the section
+    section.style.display = 'block';
+    
+    const featureSize = gnn.featureSize;
+    const hiddenSize = gnn.hiddenSize;
+    const outputSize = gnn.outputSize;
+    const numMPLayers = gnn.numMPLayers;
+    
+    const spacing = 85;
+    const padding = 20;
+    const legendSpace = 80;
+    const totalLayers = 2 + numMPLayers * 2 + 2;
+    const totalWidth = totalLayers * spacing + padding * 2 + legendSpace;
+    const totalHeight = 200;
+    
+    const svgContainer = document.createElement('div');
+    svgContainer.setAttribute('style', 'overflow-x: auto; overflow-y: hidden; border: 1px solid #ccc; background: #fafafa; border-radius: 4px; margin: 1rem 0; height: 220px;');
+    
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', totalWidth);
+    svg.setAttribute('height', totalHeight);
+    svg.setAttribute('style', 'display: block;');
+    
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    defs.innerHTML = `
+        <linearGradient id="msgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#4285f4;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#1967d2;stop-opacity:1" />
+        </linearGradient>
+        <linearGradient id="updGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#34a853;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#188038;stop-opacity:1" />
+        </linearGradient>
+        <linearGradient id="readGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#ea4335;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#c5221f;stop-opacity:1" />
+        </linearGradient>
+        <linearGradient id="outGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:#fbbc04;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#f57d00;stop-opacity:1" />
+        </linearGradient>
+    `;
+    svg.appendChild(defs);
+    
+    let xPos = padding + legendSpace;
+    const cy = totalHeight / 2;
+    
+    function drawBox(x, y, w, h, fill, stroke, texts) {
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        box.setAttribute('x', x - w/2);
+        box.setAttribute('y', y - h/2);
+        box.setAttribute('width', w);
+        box.setAttribute('height', h);
+        box.setAttribute('fill', fill);
+        box.setAttribute('stroke', stroke);
+        box.setAttribute('stroke-width', 1.5);
+        box.setAttribute('rx', 3);
+        g.appendChild(box);
+        
+        texts.forEach((t, i) => {
+            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text.setAttribute('x', x);
+            text.setAttribute('y', y - 18 + i * 14);
+            text.setAttribute('text-anchor', 'middle');
+            text.setAttribute('font-size', t.size || '9');
+            if (t.bold) text.setAttribute('font-weight', 'bold');
+            text.setAttribute('fill', t.color || 'white');
+            text.textContent = t.text;
+            g.appendChild(text);
+        });
+        svg.appendChild(g);
+    }
+    
+    // Input layer
+    drawBox(xPos, cy, 50, 70, '#e8f5e9', '#2e7d32', [
+        { text: 'Input', size: '10', bold: true, color: '#1b5e20' },
+        { text: `${featureSize}f`, size: '9', color: '#1b5e20' }
+    ]);
+    xPos += spacing;
+    
+    // Message passing layers
+    for (let i = 0; i < numMPLayers; i++) {
+        const inputSize = i === 0 ? featureSize * 2 : hiddenSize * 2;
+        drawBox(xPos, cy, 56, 70, 'url(#msgGrad)', '#1967d2', [
+            { text: `Msg${i+1}`, size: '9', bold: true },
+            { text: `${inputSize}→${hiddenSize}`, size: '8' }
+        ]);
+        xPos += spacing;
+        
+        drawBox(xPos, cy, 56, 70, 'url(#updGrad)', '#188038', [
+            { text: `Upd${i+1}`, size: '9', bold: true },
+            { text: `${hiddenSize*2}→${hiddenSize}`, size: '8' }
+        ]);
+        xPos += spacing;
+    }
+    
+    // Readout
+    drawBox(xPos, cy, 50, 70, 'url(#readGrad)', '#c5221f', [
+        { text: 'Readout', size: '9', bold: true },
+        { text: `${hiddenSize}`, size: '8' }
+    ]);
+    xPos += spacing;
+    
+    // Output
+    drawBox(xPos, cy, 56, 70, 'url(#outGrad)', '#f57d00', [
+        { text: 'Output', size: '10', bold: true },
+        { text: `${outputSize}c`, size: '8' }
+    ]);
+    
+    // Legend
+    const legendItems = [
+        { label: 'Msg', color: 'url(#msgGrad)' },
+        { label: 'Upd', color: 'url(#updGrad)' },
+        { label: 'Read', color: 'url(#readGrad)' },
+        { label: 'Out', color: 'url(#outGrad)' }
+    ];
+    let ly = cy - 30;
+    legendItems.forEach(item => {
+        const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        box.setAttribute('x', padding + 5);
+        box.setAttribute('y', ly);
+        box.setAttribute('width', 10);
+        box.setAttribute('height', 10);
+        box.setAttribute('fill', item.color);
+        box.setAttribute('stroke', '#666');
+        box.setAttribute('stroke-width', 0.5);
+        box.setAttribute('rx', 2);
+        svg.appendChild(box);
+        
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', padding + 19);
+        text.setAttribute('y', ly + 8);
+        text.setAttribute('font-size', '9');
+        text.setAttribute('fill', '#333');
+        text.textContent = item.label;
+        svg.appendChild(text);
+        ly += 13;
+    });
+    
+    svgContainer.innerHTML = '';
+    svgContainer.appendChild(svg);
+    container.innerHTML = '';
+    container.appendChild(svgContainer);
+}
+
 </script>
 </body>
 </html>
