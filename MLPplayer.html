@@ -1,30 +1,293 @@
+<!--
+MIT License
+
+Copyright (c) 2025 Matthew Abbott
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions: 
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>MLP Inference</title>
     <style>
-        body { font-family: Arial,sans-serif; margin:2rem;}
-        .section { margin-bottom:2rem;}
-        label, input, textarea, button { margin:0.5rem 0;}
-        .results { background:#f5f5f5; padding:1rem; border-radius:5px;}
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            margin: 0;
+            padding: 1.5rem;
+            background: #f8fafc;
+            color: #1e293b;
+        }
+        h1 {
+            color: #0f172a;
+            margin-bottom: 0.5rem;
+        }
+        h2 {
+            color: #334155;
+            font-size: 1.1rem;
+            margin: 0 0 0.75rem 0;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .section {
+            background: white;
+            border-radius: 12px;
+            padding: 1.25rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 1.25rem;
+        }
+        .section:last-child {
+            margin-bottom: 0;
+        }
+
+        label {
+            display: block;
+            margin: 0.5rem 0 0.25rem 0;
+            font-size: 0.9rem;
+        }
+        input[type="file"],
+        input[type="text"],
+        input[type="number"],
+        select {
+            padding: 0.4rem 0.5rem;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            width: 100%;
+            max-width: 400px;
+        }
+        input[type="file"] {
+            padding: 0.5rem;
+        }
+
+        button {
+            padding: 8px 16px;
+            background: #5a5a5a;
+            color: white;
+            border: none;
+            border-radius: 0;
+            cursor: pointer;
+            font-size: 0.9rem;
+            margin: 0.5rem 0.5rem 0.5rem 0;
+            transition: background 0.2s;
+        }
+        button:hover { background: #4a4a4a; }
+        button:active { background: #3a3a3a; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        button.secondary { background: #64748b; }
+        button.secondary:hover { background: #475569; }
+
+        .error-msg {
+            color: #dc2626;
+            background: #fef2f2;
+            padding: 0.5rem 0.75rem;
+            border-radius: 6px;
+            margin: 0.5rem 0;
+            font-size: 0.85rem;
+            border-left: 4px solid #dc2626;
+        }
+        .success-msg {
+            color: #16a34a;
+            background: #f0fdf4;
+            padding: 0.5rem 0.75rem;
+            border-radius: 6px;
+            margin: 0.5rem 0;
+            font-size: 0.85rem;
+            border-left: 4px solid #16a34a;
+        }
+        .info-msg {
+            color: #0369a1;
+            background: #f0f9ff;
+            padding: 0.5rem 0.75rem;
+            border-radius: 6px;
+            margin: 0.5rem 0;
+            font-size: 0.85rem;
+            border-left: 4px solid #0284c7;
+        }
+
+        .model-info {
+            background: #f1f5f9;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            padding: 1rem;
+            margin: 0.75rem 0;
+            font-size: 0.85rem;
+        }
+        .model-info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 0.75rem;
+            margin-top: 0.5rem;
+        }
+        .model-info-item {
+            background: white;
+            padding: 0.5rem;
+            border-radius: 4px;
+            border: 1px solid #e2e8f0;
+        }
+        .model-info-label {
+            font-size: 0.75rem;
+            color: #64748b;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+        .model-info-value {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #0f172a;
+            margin-top: 0.25rem;
+        }
+
+        .results {
+            background: #f1f5f9;
+            border: 1px solid #cbd5e1;
+            padding: 1rem;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 0.75rem;
+        }
+
+        .prediction-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 0.75rem;
+            margin-top: 0.75rem;
+        }
+        .prediction-item {
+            background: #f0fdf4;
+            padding: 0.75rem;
+            border-radius: 6px;
+            border: 1px solid #bbf7d0;
+            text-align: center;
+        }
+        .prediction-label {
+            font-size: 0.75rem;
+            color: #16a34a;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+        .prediction-value {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #15803d;
+            margin-top: 0.25rem;
+        }
+
+        .file-section {
+            background: #e0f2fe;
+            border-left: 4px solid #0284c7;
+        }
+
+        textarea {
+            width: 100%;
+            height: 4rem;
+            padding: 0.5rem;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 0.85rem;
+            resize: vertical;
+        }
+
+        @media (max-width: 900px) {
+            .prediction-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
-    <h1>MLP Inference (Loader Only)</h1>
+    <div class="container">
+        <h1>MLP Inference Engine</h1>
+        <p style="color:#64748b; margin-bottom:1.5rem;">Load pre-trained models and run predictions with full visualization</p>
 
-    <div class="section">
-        <h2>Load Trained Model</h2>
-        <input type="file" id="modelFile" accept=".json">
-        <button onclick="loadModel()">Load Model</button>
-        <span id="modelStatus"></span>
-    </div>
+        <!-- Network Architecture Visualization -->
+        <div class="section">
+            <h2>Network Architecture</h2>
+            <div id="networkVisualization"></div>
+        </div>
 
-    <div class="section">
-        <h2>Run Prediction</h2>
-        <label>Input (comma separated): <input type="text" id="predictInput" value="" autocomplete="off"></label>
-        <button onclick="predictInput()">Predict</button>
-        <div id="predictOutput" class="results"></div>
+        <!-- File Operations -->
+        <div class="section file-section">
+            <h2>Model Persistence</h2>
+            <label>Load Trained Model:</label>
+            <input type="file" id="modelFile" accept=".json">
+            <button onclick="loadModel()">Load Model</button>
+            <button class="secondary" onclick="saveCurrentModel()" id="saveBtn" disabled>Save Current Model</button>
+            <div id="fileStatus" style="margin-top:0.5rem;"></div>
+        </div>
+
+        <!-- Model Info -->
+        <div id="modelInfoSection" style="display:none;">
+            <div class="section">
+                <h2>Loaded Model Information</h2>
+                <div class="model-info">
+                    <strong>Architecture</strong>
+                    <div class="model-info-grid">
+                        <div class="model-info-item">
+                            <div class="model-info-label">Input Size</div>
+                            <div class="model-info-value" id="infoInputSize">-</div>
+                        </div>
+                        <div class="model-info-item">
+                            <div class="model-info-label">Hidden Layers</div>
+                            <div class="model-info-value" id="infoHiddenLayers">-</div>
+                        </div>
+                        <div class="model-info-item">
+                            <div class="model-info-label">Output Size</div>
+                            <div class="model-info-value" id="infoOutputSize">-</div>
+                        </div>
+                        <div class="model-info-item">
+                            <div class="model-info-label">Hidden Activation</div>
+                            <div class="model-info-value" id="infoHiddenAct" style="font-size:0.9rem;">-</div>
+                        </div>
+                        <div class="model-info-item">
+                            <div class="model-info-label">Output Activation</div>
+                            <div class="model-info-value" id="infoOutputAct" style="font-size:0.9rem;">-</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Prediction -->
+        <div class="section">
+            <h2>Run Prediction</h2>
+            <label>Input (comma separated):</label>
+            <textarea id="predictInput" placeholder="e.g., 0.5,0.3,0.8"></textarea>
+            <button onclick="predictInput()">Predict</button>
+            <div id="predictOutput"></div>
+        </div>
+
+        <!-- Raw Output -->
+        <div class="section">
+            <h2>Raw Output Data</h2>
+            <div id="rawOutput" class="results" style="display:none;"></div>
+            <div id="rawOutputPlaceholder" style="color:#94a3b8; font-size:0.9rem;">Run a prediction to see output data</div>
+        </div>
     </div>
 
     <script>
@@ -37,15 +300,24 @@
                 let sum = 0, expValues = [];
                 for (let i = 0; i < x.length; i++) {
                     const expVal = Math.exp(x[i] - maxVal);
-                    expValues.push(expVal); sum += expVal;
+                    expValues.push(expVal);
+                    sum += expVal;
                 }
-                return expValues.map(val => Math.max(EPSILON, Math.min(1-EPSILON, val/sum)));
+                return expValues.map(val => Math.max(EPSILON, Math.min(1 - EPSILON, val / sum)));
             }
-            static sigmoid(x) { return Array.isArray(x) ? x.map(val => 1/(1+Math.exp(-Math.max(-500, Math.min(500,val))))) : 1/(1+Math.exp(-Math.max(-500,Math.min(500,x)))); }
-            static tanh(x) { return Array.isArray(x) ? x.map(val=>Math.tanh(val)) : Math.tanh(x);}
-            static relu(x) { return Array.isArray(x) ? x.map(val=>Math.max(0,val)) : Math.max(0,x);}
+            static sigmoid(x) {
+                return Array.isArray(x)
+                    ? x.map(val => 1 / (1 + Math.exp(-Math.max(-500, Math.min(500, val)))))
+                    : 1 / (1 + Math.exp(-Math.max(-500, Math.min(500, x))));
+            }
+            static tanh(x) {
+                return Array.isArray(x) ? x.map(val => Math.tanh(val)) : Math.tanh(x);
+            }
+            static relu(x) {
+                return Array.isArray(x) ? x.map(val => Math.max(0, val)) : Math.max(0, x);
+            }
             static apply(type, x) {
-                switch(type) {
+                switch (type) {
                     case 'sigmoid': return this.sigmoid(x);
                     case 'tanh': return this.tanh(x);
                     case 'relu': return this.relu(x);
@@ -54,6 +326,7 @@
                 }
             }
         }
+
         class TNeuron {
             constructor() {
                 this.weights = [];
@@ -61,12 +334,14 @@
                 this.output = 0;
             }
         }
+
         class TLayer {
             constructor() {
                 this.neurons = [];
                 this.activationType = 'sigmoid';
             }
         }
+
         class TMultiLayerPerceptron {
             constructor() {
                 this.inputLayer = new TLayer();
@@ -75,6 +350,7 @@
                 this.hiddenActivation = 'sigmoid';
                 this.outputActivation = 'softmax';
             }
+
             feedForward(input) {
                 for (let i = 0; i < this.inputLayer.neurons.length; i++)
                     this.inputLayer.neurons[i].output = input[i];
@@ -118,76 +394,460 @@
                 }
                 return output;
             }
+
             predict(input) {
-                // All other state (training/dropout/etc) is ignored for inference
                 return this.feedForward(input);
             }
+
             static fromJSON(json) {
                 let obj = typeof json === "string" ? JSON.parse(json) : json;
                 const mlp = new TMultiLayerPerceptron();
+                
+                // Handle both formats: hiddenLayers/neurons OR hidden_layers/weights
+                let inputSize = obj.inputSize || obj.input_size || 0;
+                let hiddenLayers = null;
+                let outputLayer = null;
+                let hiddenActivation = obj.hiddenActivation || obj.hidden_activation || 'sigmoid';
+                let outputActivation = obj.outputActivation || obj.output_activation || 'sigmoid';
+                
+                // Detect format: Pascal (hidden_layers + weights) vs JavaScript (hiddenLayers + neurons)
+                if (obj.hidden_layers && Array.isArray(obj.hidden_layers) && obj.hidden_layers[0].weights) {
+                    // Pascal format: convert hidden_layers with weights to hiddenLayers with neurons
+                    inputSize = obj.input_size;
+                    hiddenLayers = obj.hidden_layers.map((layer, layerIdx) => ({
+                        activationType: obj.hidden_activation || 'sigmoid',
+                        neurons: layer.weights.map((weights, neuronIdx) => {
+                            const neuron = new TNeuron();
+                            const bias = layer.biases[neuronIdx];
+                            
+                            // Extract bias from last weight if needed
+                            if (bias === 0 && weights.length === inputSize + 1) {
+                                // This is the first layer, check if last weight is bias
+                                neuron.weights = weights.slice(0, -1);
+                                neuron.bias = weights[weights.length - 1];
+                            } else if (bias === 0 && layerIdx > 0 && weights.length === obj.hidden_layers[layerIdx - 1].weights.length + 1) {
+                                // Hidden layer: check if last weight is bias
+                                neuron.weights = weights.slice(0, -1);
+                                neuron.bias = weights[weights.length - 1];
+                            } else {
+                                neuron.weights = weights;
+                                neuron.bias = bias;
+                            }
+                            return neuron;
+                        })
+                    }));
+                    
+                    // Convert output layer
+                    outputLayer = {
+                        activationType: obj.output_activation || 'sigmoid',
+                        neurons: obj.output_layer.weights.map((weights, neuronIdx) => {
+                            const neuron = new TNeuron();
+                            const bias = obj.output_layer.biases[neuronIdx];
+                            const expectedInputSize = obj.hidden_layers[obj.hidden_layers.length - 1].weights.length;
+                            
+                            // Extract bias from last weight if needed
+                            if (bias === 0 && weights.length === expectedInputSize + 1) {
+                                neuron.weights = weights.slice(0, -1);
+                                neuron.bias = weights[weights.length - 1];
+                            } else {
+                                neuron.weights = weights;
+                                neuron.bias = bias;
+                            }
+                            return neuron;
+                        })
+                    };
+                } else {
+                    // JavaScript format: use as-is
+                    hiddenLayers = obj.hiddenLayers;
+                    outputLayer = obj.outputLayer;
+                }
+                
+                // Build the MLP
                 mlp.inputLayer = new TLayer();
-                for (let i = 0; i < obj.inputSize; i++) mlp.inputLayer.neurons.push(new TNeuron());
+                for (let i = 0; i < inputSize; i++) mlp.inputLayer.neurons.push(new TNeuron());
                 mlp.hiddenLayers = [];
-                mlp.hiddenActivation = obj.hiddenActivation;
-                mlp.outputActivation = obj.outputActivation;
-                for (let l = 0; l < obj.hiddenLayers.length; l++) {
+                mlp.hiddenActivation = hiddenActivation;
+                mlp.outputActivation = outputActivation;
+                
+                for (let l = 0; l < hiddenLayers.length; l++) {
                     let layer = new TLayer();
-                    layer.activationType = obj.hiddenLayers[l].activationType;
-                    for (let n = 0; n < obj.hiddenLayers[l].neurons.length; n++) {
+                    layer.activationType = hiddenLayers[l].activationType;
+                    for (let n = 0; n < hiddenLayers[l].neurons.length; n++) {
                         let neuron = new TNeuron();
-                        neuron.weights = obj.hiddenLayers[l].neurons[n].weights;
-                        neuron.bias = obj.hiddenLayers[l].neurons[n].bias;
+                        neuron.weights = hiddenLayers[l].neurons[n].weights;
+                        neuron.bias = hiddenLayers[l].neurons[n].bias;
                         layer.neurons.push(neuron);
                     }
                     mlp.hiddenLayers.push(layer);
                 }
+                
                 mlp.outputLayer = new TLayer();
-                mlp.outputLayer.activationType = obj.outputLayer.activationType;
-                for (let n = 0; n < obj.outputLayer.neurons.length; n++) {
+                mlp.outputLayer.activationType = outputLayer.activationType;
+                for (let n = 0; n < outputLayer.neurons.length; n++) {
                     let neuron = new TNeuron();
-                    neuron.weights = obj.outputLayer.neurons[n].weights;
-                    neuron.bias = obj.outputLayer.neurons[n].bias;
+                    neuron.weights = outputLayer.neurons[n].weights;
+                    neuron.bias = outputLayer.neurons[n].bias;
                     mlp.outputLayer.neurons.push(neuron);
                 }
                 return mlp;
+            }
+
+            toJSON() {
+                return {
+                    inputSize: this.inputLayer.neurons.length,
+                    hiddenActivation: this.hiddenActivation,
+                    outputActivation: this.outputActivation,
+                    hiddenLayers: this.hiddenLayers.map(layer => ({
+                        activationType: layer.activationType,
+                        neurons: layer.neurons.map(neuron => ({
+                            weights: neuron.weights,
+                            bias: neuron.bias
+                        }))
+                    })),
+                    outputLayer: {
+                        activationType: this.outputLayer.activationType,
+                        neurons: this.outputLayer.neurons.map(neuron => ({
+                            weights: neuron.weights,
+                            bias: neuron.bias
+                        }))
+                    }
+                };
             }
         }
 
         // UI logic
         let mlpModel = null;
+        let lastLoadedData = null;
+
+        function updateModelInfo() {
+            if (!mlpModel) return;
+            
+            document.getElementById("modelInfoSection").style.display = "block";
+            document.getElementById("infoInputSize").textContent = mlpModel.inputLayer.neurons.length;
+            document.getElementById("infoHiddenLayers").textContent = mlpModel.hiddenLayers.length > 0 
+                ? mlpModel.hiddenLayers.map(l => l.neurons.length).join(" → ")
+                : "none";
+            document.getElementById("infoOutputSize").textContent = mlpModel.outputLayer.neurons.length;
+            document.getElementById("infoHiddenAct").textContent = mlpModel.hiddenActivation;
+            document.getElementById("infoOutputAct").textContent = mlpModel.outputActivation;
+            document.getElementById("saveBtn").disabled = false;
+        }
 
         function loadModel() {
             let fileInput = document.getElementById('modelFile');
-            let status = document.getElementById('modelStatus');
-            if (!fileInput.files.length) { status.textContent = 'No file selected.'; return;}
+            let status = document.getElementById('fileStatus');
+            if (!fileInput.files.length) {
+                status.innerHTML = '<div class="error-msg">No file selected</div>';
+                return;
+            }
 
             const reader = new FileReader();
-            reader.onload = function(e){
+            reader.onload = function (e) {
                 try {
+                    lastLoadedData = e.target.result;
                     mlpModel = TMultiLayerPerceptron.fromJSON(e.target.result);
-                    status.textContent = "Model loaded OK.";
+                    updateModelInfo();
+                    visualizeMLPArchitecture(mlpModel);
+                    
+                    // Build architecture string from loaded model
+                    const arch = [mlpModel.inputLayer.neurons.length, 
+                                  ...mlpModel.hiddenLayers.map(l => l.neurons.length), 
+                                  mlpModel.outputLayer.neurons.length].join(" → ");
+                    
+                    status.innerHTML = `<div class="success-msg">✓ Model loaded successfully<br><strong>Architecture:</strong> ${arch}</div>`;
+                    document.getElementById('predictInput').focus();
                 } catch (err) {
-                    status.textContent = "Error loading model: " + err;
+                    console.error("Load error:", err);
+                    status.innerHTML = `<div class="error-msg">✗ Error loading model: ${err.message}</div>`;
                 }
             };
             reader.readAsText(fileInput.files[0]);
         }
 
+        function saveCurrentModel() {
+            if (!mlpModel || !lastLoadedData) {
+                alert("No model loaded");
+                return;
+            }
+
+            const blob = new Blob([lastLoadedData], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'mlp_model.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
         function predictInput() {
             if (!mlpModel) {
-                document.getElementById('predictOutput').textContent = "No model loaded.";
+                document.getElementById('predictOutput').innerHTML = '<div class="error-msg">No model loaded</div>';
                 return;
             }
-            let input = document.getElementById('predictInput').value.trim().split(',').map(Number);
-            if (!input || input.length !== mlpModel.inputLayer.neurons.length)
-            {
-                document.getElementById('predictOutput').textContent =
-                    "Input size (" + input.length + ") doesn't match model (" + mlpModel.inputLayer.neurons.length + ")";
+
+            let inputText = document.getElementById('predictInput').value.trim();
+            if (!inputText) {
+                document.getElementById('predictOutput').innerHTML = '<div class="info-msg">Enter comma-separated values and click Predict</div>';
                 return;
             }
+
+            let input = inputText.split(',').map(x => {
+                const val = parseFloat(x.trim());
+                return isNaN(val) ? 0 : val;
+            });
+
+            if (input.length !== mlpModel.inputLayer.neurons.length) {
+                document.getElementById('predictOutput').innerHTML = 
+                    `<div class="error-msg">Input size mismatch: got ${input.length}, expected ${mlpModel.inputLayer.neurons.length}</div>`;
+                return;
+            }
+
             const output = mlpModel.predict(input);
-            document.getElementById('predictOutput').textContent = "Predicted: " + JSON.stringify(output, null, 2);
+            
+            // Show raw output
+            document.getElementById('rawOutput').textContent = JSON.stringify(output, null, 2);
+            document.getElementById('rawOutput').style.display = 'block';
+            document.getElementById('rawOutputPlaceholder').style.display = 'none';
+
+            // Show prediction results
+            let html = '<div class="prediction-grid">';
+            for (let i = 0; i < output.length; i++) {
+                const pct = (output[i] * 100).toFixed(1);
+                html += `<div class="prediction-item">
+                    <div class="prediction-label">Output ${i}</div>
+                    <div class="prediction-value">${pct}%</div>
+                </div>`;
+            }
+            html += '</div>';
+
+            // Find max
+            const maxIdx = output.indexOf(Math.max(...output));
+            html += `<div class="info-msg" style="margin-top:1rem;"><strong>Predicted Class:</strong> ${maxIdx} (${(output[maxIdx]*100).toFixed(1)}%)</div>`;
+
+            document.getElementById('predictOutput').innerHTML = html;
         }
+
+        // ==================== NETWORK VISUALIZATION ====================
+
+        function visualizeMLPArchitecture(mlp) {
+            if (!mlp) return;
+            
+            const container = document.getElementById('networkVisualization');
+            if (!container) return;
+            
+            const spacing = 85;
+            const padding = 20;
+            const legendSpace = 80;
+            const totalLayers = mlp.hiddenLayers.length + 2;
+            
+            const totalWidth = totalLayers * spacing + padding * 2 + legendSpace;
+            const totalHeight = 200;
+            
+            const svgContainer = document.createElement('div');
+            svgContainer.setAttribute('style', 'overflow-x: auto; overflow-y: hidden; border: 1px solid #ccc; background: #fafafa; border-radius: 4px; margin: 1rem 0; height: 220px;');
+            
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.setAttribute('width', totalWidth);
+            svg.setAttribute('height', totalHeight);
+            svg.setAttribute('style', 'display: block;');
+            
+            const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+            defs.innerHTML = `
+                <linearGradient id="inputGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" style="stop-color:#e8f5e9;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#c8e6c9;stop-opacity:1" />
+                </linearGradient>
+                <linearGradient id="hiddenGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" style="stop-color:#ea4335;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#c5221f;stop-opacity:1" />
+                </linearGradient>
+                <linearGradient id="outGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" style="stop-color:#fbbc04;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#f57d00;stop-opacity:1" />
+                </linearGradient>
+            `;
+            svg.appendChild(defs);
+            
+            let xPos = padding + legendSpace;
+            
+            // Draw input layer
+            drawMLPInputLayer(svg, xPos, totalHeight / 2, mlp.inputLayer.neurons.length);
+            xPos += spacing;
+            
+            // Draw hidden layers
+            for (let i = 0; i < mlp.hiddenLayers.length; i++) {
+                drawMLPHiddenLayer(svg, xPos, totalHeight / 2, mlp.hiddenLayers[i].neurons.length, i + 1);
+                xPos += spacing;
+            }
+            
+            // Draw output layer
+            drawMLPOutputLayer(svg, xPos, totalHeight / 2, mlp.outputLayer.neurons.length);
+            
+            // Draw legend
+            drawMLPLegend(svg, padding + 5, totalHeight / 2 - 30);
+            
+            svgContainer.innerHTML = '';
+            svgContainer.appendChild(svg);
+            
+            container.innerHTML = '';
+            container.appendChild(svgContainer);
+        }
+
+        function drawMLPInputLayer(svg, x, cy, neurons) {
+            const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            
+            const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            box.setAttribute('x', x - 25);
+            box.setAttribute('y', cy - 35);
+            box.setAttribute('width', 50);
+            box.setAttribute('height', 70);
+            box.setAttribute('fill', '#e8f5e9');
+            box.setAttribute('stroke', '#2e7d32');
+            box.setAttribute('stroke-width', 1.5);
+            box.setAttribute('rx', 3);
+            g.appendChild(box);
+            
+            const text1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text1.setAttribute('x', x);
+            text1.setAttribute('y', cy - 18);
+            text1.setAttribute('text-anchor', 'middle');
+            text1.setAttribute('font-size', '10');
+            text1.setAttribute('font-weight', 'bold');
+            text1.setAttribute('fill', '#1b5e20');
+            text1.textContent = 'Input';
+            g.appendChild(text1);
+            
+            const text2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text2.setAttribute('x', x);
+            text2.setAttribute('y', cy + 2);
+            text2.setAttribute('text-anchor', 'middle');
+            text2.setAttribute('font-size', '9');
+            text2.setAttribute('fill', '#1b5e20');
+            text2.textContent = `${neurons}`;
+            g.appendChild(text2);
+            
+            svg.appendChild(g);
+        }
+
+        function drawMLPHiddenLayer(svg, x, cy, neurons, layerNum) {
+            const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            
+            const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            box.setAttribute('x', x - 25);
+            box.setAttribute('y', cy - 35);
+            box.setAttribute('width', 50);
+            box.setAttribute('height', 70);
+            box.setAttribute('fill', 'url(#hiddenGrad)');
+            box.setAttribute('stroke', '#c5221f');
+            box.setAttribute('stroke-width', 1.5);
+            box.setAttribute('rx', 3);
+            g.appendChild(box);
+            
+            const text1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text1.setAttribute('x', x);
+            text1.setAttribute('y', cy - 18);
+            text1.setAttribute('text-anchor', 'middle');
+            text1.setAttribute('font-size', '9');
+            text1.setAttribute('font-weight', 'bold');
+            text1.setAttribute('fill', 'white');
+            text1.textContent = `H${layerNum}`;
+            g.appendChild(text1);
+            
+            const text2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text2.setAttribute('x', x);
+            text2.setAttribute('y', cy + 8);
+            text2.setAttribute('text-anchor', 'middle');
+            text2.setAttribute('font-size', '8');
+            text2.setAttribute('fill', 'white');
+            text2.textContent = `${neurons}`;
+            g.appendChild(text2);
+            
+            svg.appendChild(g);
+        }
+
+        function drawMLPOutputLayer(svg, x, cy, neurons) {
+            const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            
+            const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            box.setAttribute('x', x - 28);
+            box.setAttribute('y', cy - 35);
+            box.setAttribute('width', 56);
+            box.setAttribute('height', 70);
+            box.setAttribute('fill', 'url(#outGrad)');
+            box.setAttribute('stroke', '#f57d00');
+            box.setAttribute('stroke-width', 1.5);
+            box.setAttribute('rx', 3);
+            g.appendChild(box);
+            
+            const text1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text1.setAttribute('x', x);
+            text1.setAttribute('y', cy - 18);
+            text1.setAttribute('text-anchor', 'middle');
+            text1.setAttribute('font-size', '10');
+            text1.setAttribute('font-weight', 'bold');
+            text1.setAttribute('fill', 'white');
+            text1.textContent = 'Output';
+            g.appendChild(text1);
+            
+            const text2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text2.setAttribute('x', x);
+            text2.setAttribute('y', cy + 8);
+            text2.setAttribute('text-anchor', 'middle');
+            text2.setAttribute('font-size', '8');
+            text2.setAttribute('fill', 'white');
+            text2.textContent = `${neurons}`;
+            g.appendChild(text2);
+            
+            svg.appendChild(g);
+        }
+
+        function drawMLPLegend(svg, x, y) {
+            const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            
+            const items = [
+                { label: 'Input', color: '#e8f5e9', stroke: '#2e7d32' },
+                { label: 'Hidden', color: 'url(#hiddenGrad)', stroke: '#c5221f' },
+                { label: 'Output', color: 'url(#outGrad)', stroke: '#f57d00' }
+            ];
+            
+            let yOffset = y;
+            items.forEach(item => {
+                const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                box.setAttribute('x', x);
+                box.setAttribute('y', yOffset);
+                box.setAttribute('width', 10);
+                box.setAttribute('height', 10);
+                box.setAttribute('fill', item.color);
+                box.setAttribute('stroke', item.stroke);
+                box.setAttribute('stroke-width', 0.5);
+                box.setAttribute('rx', 2);
+                g.appendChild(box);
+                
+                const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                text.setAttribute('x', x + 14);
+                text.setAttribute('y', yOffset + 8);
+                text.setAttribute('font-size', '9');
+                text.setAttribute('fill', '#333');
+                text.textContent = item.label;
+                g.appendChild(text);
+                
+                yOffset += 13;
+            });
+            
+            svg.appendChild(g);
+        }
+
+        // Allow Enter key in textarea to submit
+        document.addEventListener('DOMContentLoaded', function() {
+            const textarea = document.getElementById('predictInput');
+            if (textarea) {
+                textarea.addEventListener('keydown', function(e) {
+                    if (e.ctrlKey && e.key === 'Enter') {
+                        predictInput();
+                    }
+                });
+            }
+        });
     </script>
 </body>
 </html>
